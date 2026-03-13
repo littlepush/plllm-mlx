@@ -434,3 +434,9 @@ class PlMlxModel(PlModelLoader):
         """Stream generate for completion mode."""
         async for chunk in self.stream_generate(session_object):
             yield chunk
+
+
+# Register the MLX model loader
+PlModelLoader.registerModelLoader("mlx", PlMlxModel)
+
+logger.debug("Registered MLX model loader")
