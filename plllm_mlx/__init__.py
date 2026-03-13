@@ -122,11 +122,16 @@ def create_app(
     )
 
     # Register routers
-    # Note: Routers will be added as they are implemented
-    # from .routers import chat, models, completions
-    # app.include_router(chat.router, prefix="/v1", tags=["chat"])
-    # app.include_router(models.router, prefix="/v1", tags=["models"])
-    # app.include_router(completions.router, prefix="/v1", tags=["completions"])
+    from .routers import chat, loader, models, model_manager, stepprocessor
+
+    # Chat API (/v1/chat/completions, /v1/completions)
+    app.include_router(chat.router, tags=["chat"])
+
+    # Model management APIs
+    app.include_router(loader.router, tags=["loader"])
+    app.include_router(models.router, tags=["models"])
+    app.include_router(model_manager.router, tags=["model_manager"])
+    app.include_router(stepprocessor.router, tags=["stepprocessor"])
 
     # Health check endpoint
     @app.get("/health", tags=["health"])

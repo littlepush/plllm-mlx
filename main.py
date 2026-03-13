@@ -123,19 +123,30 @@ def main() -> int:
     merged_config = merge_config(args, config)
 
     try:
-        # Import server module (deferred import for faster startup)
-        from plllm_mlx.server import run_server
+        # Import and create app
+        from plllm_mlx import create_app
+        import uvicorn
+
+        # Create FastAPI application
+        app = create_app(
+            config_file=args.config if Path(args.config).exists() else None,
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level,
+        )
 
         # Start the server
-        run_server(
-            host=merged_config["server"]["host"],
-            port=merged_config["server"]["port"],
-            config=merged_config,
+        logger.info(f"Starting server on {args.host}:{args.port}")
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level,
         )
         return 0
 
     except ImportError as e:
-        logger.error(f"Failed to import server module: {e}")
+        logger.error(f"Failed to import plllm_mlx: {e}")
         logger.error("Make sure plllm_mlx is properly installed")
         return 1
 
