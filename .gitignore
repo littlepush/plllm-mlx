@@ -59,7 +59,7 @@ config.local.yaml
 Thumbs.db
 
 # Models (if downloaded locally)
-models/
+/models/
 *.gguf
 *.safetensors
 *.bin
