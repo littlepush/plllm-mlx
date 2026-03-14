@@ -19,7 +19,7 @@ from .chat_helper import PlChatCompletionHelper
 from .chunk_helper import PlChunk, PlChunkDataType
 from .clz_helper import PlFindSpecifialSubclass, PlRootPath, PlUnpackPath
 from .host_helper import get_hostname
-from .response_helper import get_finish_reason
+from .response_helper import get_finish_reason, PlMlxGetFinishReason
 from .step_info import PlStepHelper, PlStepUsage
 from .toolcall_helper import PlCommonToolcallParser
 
@@ -40,6 +40,7 @@ __all__: list[str] = [
     "get_hostname",
     # Response utilities
     "get_finish_reason",
+    "PlMlxGetFinishReason",  # Add alias for backward compatibility
     # Step usage
     "PlStepHelper",
     "PlStepUsage",
