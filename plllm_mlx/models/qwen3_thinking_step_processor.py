@@ -160,5 +160,3 @@ class Qwen3ThinkingStepProcessor(PlStepProcessor):
 
 # Register the step processor
 PlStepProcessor.registerStepProcessor("qwen3think", Qwen3ThinkingStepProcessor)
-logger.debug("Registered qwen3think step processor")
-
