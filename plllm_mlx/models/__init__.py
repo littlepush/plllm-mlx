@@ -20,9 +20,17 @@ from .process_manager import PlProcessManager, PlModelSubprocess
 from .kv_cache import PlMessageBasedKVCache, PlKVCacheMessage
 
 # Step processors (import to trigger registration)
-from .default_step_processor import PlDefaultStepProcessor
-from .qwen3_thinking_step_processor import Qwen3ThinkingStepProcessor
-from .openai_step_processor import PlOpenAIStepProcessor
+try:
+    from .default_step_processor import PlDefaultStepProcessor
+    from .qwen3_thinking_step_processor import Qwen3ThinkingStepProcessor
+    from .openai_step_processor import PlOpenAIStepProcessor
+except Exception as e:
+    import sys
+
+    print(f"[ERROR] Failed to import step processors: {e}", file=sys.stderr)
+    import traceback
+
+    traceback.print_exc()
 
 # Model loaders (require MLX - lazy import or optional)
 # These are imported automatically when model_loader.py is loaded

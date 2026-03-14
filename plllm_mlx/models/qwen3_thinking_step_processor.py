@@ -1,13 +1,38 @@
-from plpybase import *
-from helpers import *
-from models.step_processor import PlStepProcessor
-from typing import Any, Optional, List
+"""
+Qwen3 thinking step processor for handling thinking mode generation.
+
+This module provides a step processor that handles Qwen3's thinking mode,
+which generates reasoning content before the actual response.
+"""
+
+from __future__ import annotations
+
 import time
+from typing import Any, List, Optional
+
+from plllm_mlx.helpers import PlChunk, PlChunkDataType
+from plllm_mlx.logging_config import get_logger
+from plllm_mlx.models.base_step_processor import PlStepProcessor
+
+logger = get_logger(__name__)
+
+
+# Helper functions for MLX generation response
+def PlMlxGetFinishReason(gr):
+    """Get finish reason from MLX generation response."""
+    if hasattr(gr, 'finish_reason'):
+        return gr.finish_reason
+    return None
 
 
 class Qwen3ThinkingStepProcessor(PlStepProcessor):
     """
-    Specialized step processor for Qwen3 thinking models.
+    Step processor for Qwen3 models with thinking mode support.
+    
+    This processor handles the special thinking mode where the model generates
+    reasoning content enclosed in special tokens before producing the actual response.
+    """
+
 
     Qwen3 models have a unique thinking mechanism:
     - The thinking process starts from the first token (no explicit <think> tag needed)
@@ -149,7 +174,7 @@ class Qwen3ThinkingStepProcessor(PlStepProcessor):
                 result.append(tool_call_chunk)
                 self.stop_reason = "tool_calls"
             else:
-                pl_log.warn(f"[StepProcessor] Failed to parse tool call from buffer")
+                logger.warning(f"[StepProcessor] Failed to parse tool call from buffer")
 
         return result
 
@@ -160,3 +185,4 @@ class Qwen3ThinkingStepProcessor(PlStepProcessor):
 
 # Register the step processor
 PlStepProcessor.registerStepProcessor("qwen3think", Qwen3ThinkingStepProcessor)
+

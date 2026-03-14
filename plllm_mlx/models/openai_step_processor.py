@@ -1,6 +1,7 @@
-from plpybase import *
-from helpers import *
-from models.step_processor import PlStepProcessor
+from plllm_mlx.logging_config import get_logger
+logger = get_logger(__name__)
+from plllm_mlx.helpers import *
+from plllm_mlx.models.base_step_processor import PlStepProcessor
 from typing import Any, Optional, List
 import re
 import json
@@ -70,7 +71,7 @@ class PlOpenAIStepProcessor(PlStepProcessor):
       strip_token = gr.text.strip()
       if strip_token.startswith("<|"):
         if not strip_token.endswith("|>"):
-          pl_log.debug(f"get specifial flag but is not validate: gr.text: [{gr.text}], strip_token: [{strip_token}]")
+          logger.debug(f"get specifial flag but is not validate: gr.text: [{gr.text}], strip_token: [{strip_token}]")
       if strip_token.startswith("<|") and strip_token.endswith("|>"):
         # find a new channel
         self.current_key_in_channel = re.sub(r"<\|([^|]+)\|>", r"\1", gr.text)
@@ -91,7 +92,7 @@ class PlOpenAIStepProcessor(PlStepProcessor):
           chunk.data_type = PlChunkDataType.REASONING
           return chunk
         else:
-          pl_log.error(f"get token in channel analysis, but not in key message: {self.current_channel_name}.{self.current_key_in_channel}: {gr.text}")
+          logger.error(f"get token in channel analysis, but not in key message: {self.current_channel_name}.{self.current_key_in_channel}: {gr.text}")
         return None
       
       if self.current_channel_name == "final":
@@ -100,7 +101,7 @@ class PlOpenAIStepProcessor(PlStepProcessor):
           chunk.data_type = PlChunkDataType.CONTENT
           return chunk
         else:
-          pl_log.error(f"get token in channel final, but not in key message: {self.current_channel_name}.{self.current_key_in_channel}: {gr.text}")
+          logger.error(f"get token in channel final, but not in key message: {self.current_channel_name}.{self.current_key_in_channel}: {gr.text}")
         return None
       
       if self.current_channel_name is None or self.current_key_in_channel is None:
@@ -110,10 +111,10 @@ class PlOpenAIStepProcessor(PlStepProcessor):
       return None
     
     except Exception as e:
-      pl_log.debug(f"Step error: {str(e)}")
-      pl_log.debug(f"full content: {self.full_content}")
-      pl_log.debug(f"new token: {gr.text}")
-      pl_log.debug(f"self status: {json.dumps({
+      logger.debug(f"Step error: {str(e)}")
+      logger.debug(f"full content: {self.full_content}")
+      logger.debug(f"new token: {gr.text}")
+      logger.debug(f"self status: {json.dumps({
         "current_channel_name": self.current_channel_name,
         "current_role": self.current_role,
         "current_key_in_channel": self.current_key_in_channel,
@@ -126,7 +127,7 @@ class PlOpenAIStepProcessor(PlStepProcessor):
   
   def tool_calls(self) -> List[PlChunk]:
     self.stop_reason = "length" if self.is_stop_by_length else "stop"
-    pl_log.debug(f"channel_buffer: {json.dumps(self.channel_buffer, ensure_ascii=False)}")
+    logger.debug(f"channel_buffer: {json.dumps(self.channel_buffer, ensure_ascii=False)}")
     result = []
     for channel, data in self.channel_buffer.items():
       if channel.startswith("commentary to="):
@@ -135,15 +136,19 @@ class PlOpenAIStepProcessor(PlStepProcessor):
           "parameters": data.get("message", "")
         }
         chunk = PlChunk(data=tool_call, data_type=PlChunkDataType.TOOLCALL)
-        pl_log.debug(f"get to tool call: {tool_call}")
+        logger.debug(f"get to tool call: {tool_call}")
         result.append(chunk)
         self.stop_reason = "tool_calls"
     return result
   
   def finish(self) -> PlChunk:
-    pl_log.debug(f"full content: {self.full_content}")
+    logger.debug(f"full content: {self.full_content}")
     finish_chunk = PlChunk(finish_reason=self.stop_reason)
     return finish_chunk
 
 # Register the step processor
 PlStepProcessor.registerStepProcessor("openai", PlOpenAIStepProcessor)
+
+# Register the step processor
+PlStepProcessor.registerStepProcessor("openai", PlOpenAIStepProcessor)
+
