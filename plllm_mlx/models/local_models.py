@@ -25,12 +25,31 @@ logger = get_logger(__name__)
 
 
 class PlLocalModelInfo(BaseModel):
-    """Model information for local models."""
+    """
+    Model information for local models.
 
-    model_name: str
+    Attributes:
+        id: Model unique identifier (e.g., "gpt-4"). If empty, use name as id.
+        name: Real model name (e.g., "mlx-community/Qwen2.5-7B-Instruct-8bit").
+        model_loader: Model loader type (e.g., "mlx", "mlxvlm").
+        step_processor: Step processor type (e.g., "base", "qwen3think").
+        config: Model configuration in JSON string format.
+    """
+
+    id: str = ""
+    name: str
     model_loader: str = "mlx"
     step_processor: str = "base"
     config: str = ""
+
+    def get_effective_id(self) -> str:
+        """
+        Get effective ID for the model.
+
+        Returns:
+            The id if not empty, otherwise the name.
+        """
+        return self.id if self.id else self.name
 
 
 def _convert_config_str_to_dict(config_str: str) -> dict:
@@ -61,9 +80,10 @@ class PlLocalModelManager:
     Model configurations are stored in memory only.
 
     Attributes:
-        _models_in_memory: Dictionary of loaded model instances.
+        _models_in_memory: Dictionary of loaded model instances (key: model name).
         _models_on_disk: List of models found on disk.
-        _model_configs: In-memory storage for model configurations.
+        _model_configs: In-memory storage for model configurations (key: model name).
+        _id_to_name: Mapping from model ID to model name.
     """
 
     def __init__(self) -> None:
@@ -71,6 +91,7 @@ class PlLocalModelManager:
         self._models_in_memory: Dict[str, "PlModelLoader"] = {}
         self._models_on_disk: List[str] = []
         self._model_configs: Dict[str, PlLocalModelInfo] = {}
+        self._id_to_name: Dict[str, str] = {}  # model_id -> model_name
         # Load local models on initialization
         self._load_local_models()
 
@@ -102,21 +123,28 @@ class PlLocalModelManager:
             # Get or create model info
             model_info = self._model_configs.get(model_name)
             if model_info is None:
-                model_info = PlLocalModelInfo(model_name=model_name)
+                # Default: id is empty, use model name as effective id
+                model_info = PlLocalModelInfo(name=model_name)
                 self._model_configs[model_name] = model_info
 
             # Create the model but don't load into memory
             from .model_loader import PlModelLoader
 
             local_model = PlModelLoader.createModel(
-                model_info.model_loader, model_name, model_info.step_processor
+                model_info.model_loader, model_info.name, model_info.step_processor
             )
             if local_model is None:
-                logger.error(f"Failed to create local model loader for: {model_name}")
+                logger.error(
+                    f"Failed to create local model loader for: {model_info.name}"
+                )
                 continue
 
             local_model.set_config(_convert_config_str_to_dict(model_info.config))
-            self._models_in_memory[model_name] = local_model
+            self._models_in_memory[model_info.name] = local_model
+
+            # Register ID mapping
+            effective_id = model_info.get_effective_id()
+            self._id_to_name[effective_id] = model_info.name
 
     def reload_local_models(self) -> None:
         """Reload local models from disk."""
@@ -139,7 +167,7 @@ class PlLocalModelManager:
 
         model_info = self._model_configs.get(model_name)
         if model_info is None:
-            model_info = PlLocalModelInfo(model_name=model_name)
+            model_info = PlLocalModelInfo(name=model_name)
 
         # No need to update if same
         if model_info.step_processor == step_processor_name:
@@ -176,7 +204,7 @@ class PlLocalModelManager:
         """
         model_info = self._model_configs.get(model_name)
         if model_info is None:
-            model_info = PlLocalModelInfo(model_name=model_name)
+            model_info = PlLocalModelInfo(name=model_name)
 
         config = _convert_config_str_to_dict(model_info.config)
         config[key] = value
@@ -233,7 +261,7 @@ class PlLocalModelManager:
 
         model_info = self._model_configs.get(model_name)
         if model_info is None:
-            model_info = PlLocalModelInfo(model_name=model_name)
+            model_info = PlLocalModelInfo(name=model_name)
 
         if model_info.model_loader == model_loader_name:
             return True
@@ -270,17 +298,83 @@ class PlLocalModelManager:
 
         return True
 
-    def find_model(self, model_name: str) -> Optional["PlModelLoader"]:
+    def find_model(self, model_id_or_name: str) -> Optional["PlModelLoader"]:
         """
-        Find a model by name.
+        Find a model by id or name.
 
         Args:
-            model_name: The model name.
+            model_id_or_name: The model ID or real model name.
 
         Returns:
             The model loader instance, or None if not found.
         """
-        return self._models_in_memory.get(model_name)
+        # 1. Try to find by ID first
+        real_name = self._id_to_name.get(model_id_or_name)
+        if real_name is not None:
+            return self._models_in_memory.get(real_name)
+
+        # 2. Try to find by real name
+        return self._models_in_memory.get(model_id_or_name)
+
+    def add_model_id(self, model_id: str, model_name: str) -> bool:
+        """
+        Add a model ID mapping.
+
+        Args:
+            model_id: The model ID (e.g., "gpt-4").
+            model_name: The real model name.
+
+        Returns:
+            True if successful, False if model not found.
+        """
+        if model_name not in self._models_in_memory:
+            logger.warning(
+                f"Cannot add id '{model_id}': model '{model_name}' not found"
+            )
+            return False
+
+        # Add ID mapping
+        self._id_to_name[model_id] = model_name
+
+        # Update model info
+        model_info = self._model_configs.get(model_name)
+        if model_info:
+            model_info.id = model_id
+
+        logger.info(f"Added model id '{model_id}' -> '{model_name}'")
+        return True
+
+    def remove_model_id(self, model_id: str) -> bool:
+        """
+        Remove a model ID mapping.
+
+        Args:
+            model_id: The model ID to remove.
+
+        Returns:
+            True if successful, False if ID not found.
+        """
+        if model_id in self._id_to_name:
+            model_name = self._id_to_name[model_id]
+            del self._id_to_name[model_id]
+
+            # Update model info
+            model_info = self._model_configs.get(model_name)
+            if model_info:
+                model_info.id = ""
+
+            logger.info(f"Removed model id '{model_id}'")
+            return True
+        return False
+
+    def list_model_ids(self) -> Dict[str, str]:
+        """
+        List all model ID mappings.
+
+        Returns:
+            Dictionary mapping model ID to model name.
+        """
+        return self._id_to_name.copy()
 
     def list_model_info(self) -> List[Dict[str, Any]]:
         """
