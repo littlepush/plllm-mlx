@@ -1,7 +1,7 @@
 from plllm_mlx.logging_config import get_logger
 logger = get_logger(__name__)
 from plllm_mlx.helpers import *
-from abc import ABC, abstractmethod
+from plllm_mlx.models.step_processor import PlStepProcessor
 from typing import Any, Optional, List
 import time
 
