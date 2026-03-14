@@ -69,5 +69,5 @@ for script in _all_python_codes:
   if script.endswith("_step_processor.py"):
     step_processor_clz = PlFindSpecifialSubclass(script, PlStepProcessor)
     for clz in step_processor_clz:
-      pl_log.info(f"add step processor: {clz.step_clz_name()}")
+      logger.info(f"add step processor: {clz.step_clz_name()}")
       PlStepProcessor.registerStepProcessor(clz.step_clz_name(), clz)
