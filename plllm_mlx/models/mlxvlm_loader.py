@@ -472,27 +472,32 @@ class PlMlxVlmModel(PlModelLoader):
 
     async def stream_generate(self, session_object: PlMlxVlmSessionStorage):
         """Stream generate tokens."""
+        loop = asyncio.get_event_loop()
         matched_chain = session_object.matched_chain
         session_images = getattr(session_object, "images", None) or []
+
+        def _sync_stream_generate():
+            for result in mlx_vlm_stream_generate(
+                self._model,
+                self._processor,
+                prompt=session_object.prompt,
+                image=session_images if session_images else None,
+                max_tokens=session_object.max_tokens,
+                prompt_cache=matched_chain.cache_item,
+                sampler=session_object.sampler,
+                logits_processors=session_object.logits_processors,
+                prefill_step_size=self._prefill_step_size,
+                kv_group_size=self._kv_group_size,
+                kv_bits=self._kv_bits,
+                quantized_kv_start=self._quantized_kv_start,
+                draft_model=None,
+            ):
+                yield result
 
         stpp = self.step_processor_clz()
 
         result_count = 0
-        for gr in mlx_vlm_stream_generate(
-            self._model,
-            self._processor,
-            prompt=session_object.prompt,
-            image=session_images if session_images else None,
-            max_tokens=session_object.max_tokens,
-            prompt_cache=matched_chain.cache_item,
-            sampler=session_object.sampler,
-            logits_processors=session_object.logits_processors,
-            prefill_step_size=self._prefill_step_size,
-            kv_group_size=self._kv_group_size,
-            kv_bits=self._kv_bits,
-            quantized_kv_start=self._quantized_kv_start,
-            draft_model=None,
-        ):
+        for gr in await loop.run_in_executor(None, lambda: _sync_stream_generate()):
             result_count += 1
 
             chunk = stpp.step(gr)
