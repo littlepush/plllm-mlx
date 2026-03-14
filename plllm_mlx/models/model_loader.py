@@ -33,20 +33,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _block_count_helper(total_tokens: int) -> int:
-    """Helper function to determine block count for batching."""
-    if total_tokens < 300:
-        return 3
-    elif total_tokens < 800:
-        return 5
-    elif total_tokens < 1500:
-        return 8
-    elif total_tokens < 2000:
-        return 10
-    else:
-        return 15
-
-
 def async_ticker(name: str):
     """
     Decorator for async functions to add timing logging.
@@ -379,7 +365,6 @@ class PlModelLoader(ABC):
         helper.prompt_processed()
 
         cached_finish_reason = None
-        content_buffer = []
         total_tokens = 0
 
         async for chunk in self.stream_generate_via_process(body, cancel_event):
@@ -393,17 +378,10 @@ class PlModelLoader(ABC):
                 continue
 
             if chunk.data_type == PlChunkDataType.CONTENT:  # type: ignore
-                content_buffer.append(chunk.data)  # type: ignore
                 total_tokens += 1
-                if len(content_buffer) >= _block_count_helper(total_tokens):
-                    helper.update_content_step(
-                        "".join(content_buffer),
-                        chunk.step,  # type: ignore
-                    )
-                    content_buffer.clear()
-                    build_result = helper.build_yield_chunk(return_json)
-                    yield build_result
-                    continue
+                helper.update_content_step(chunk.data, chunk.step)  # type: ignore
+                yield helper.build_yield_chunk(return_json)
+                continue
 
             if chunk.data_type == PlChunkDataType.TOOLCALL:  # type: ignore
                 helper.update_tool_step(chunk.data, chunk.step)  # type: ignore
@@ -426,13 +404,6 @@ class PlModelLoader(ABC):
                 break
 
             if cached_finish_reason is not None:
-                if len(content_buffer) > 0:
-                    helper.update_content_step(
-                        "".join(content_buffer),
-                        chunk.step,  # type: ignore
-                    )
-                    content_buffer.clear()
-                    yield helper.build_yield_chunk(return_json)
                 break
 
         if cached_finish_reason is None:
@@ -480,7 +451,6 @@ class PlModelLoader(ABC):
         helper.prompt_processed()
 
         cached_finish_reason = None
-        content_buffer = []
         total_tokens = 0
 
         async for chunk in self.stream_generate(session_object):
@@ -494,17 +464,10 @@ class PlModelLoader(ABC):
                 continue
 
             if chunk.data_type == PlChunkDataType.CONTENT:  # type: ignore
-                content_buffer.append(chunk.data)  # type: ignore
                 total_tokens += 1
-                if len(content_buffer) >= _block_count_helper(total_tokens):
-                    helper.update_content_step(
-                        "".join(content_buffer),
-                        chunk.step,  # type: ignore
-                    )
-                    content_buffer.clear()
-                    build_result = helper.build_yield_chunk(return_json)
-                    yield build_result
-                    continue
+                helper.update_content_step(chunk.data, chunk.step)  # type: ignore
+                yield helper.build_yield_chunk(return_json)
+                continue
 
             if chunk.data_type == PlChunkDataType.TOOLCALL:  # type: ignore
                 helper.update_tool_step(chunk.data, chunk.step)  # type: ignore
@@ -527,13 +490,6 @@ class PlModelLoader(ABC):
                 break
 
             if cached_finish_reason is not None:
-                if len(content_buffer) > 0:
-                    helper.update_content_step(
-                        "".join(content_buffer),
-                        chunk.step,  # type: ignore
-                    )
-                    content_buffer.clear()
-                    yield helper.build_yield_chunk(return_json)
                 break
 
         if cached_finish_reason is None:
@@ -634,7 +590,6 @@ class PlModelLoader(ABC):
         helper.prompt_processed()
 
         cached_finish_reason = None
-        content_buffer = []
         total_tokens = 0
         async for chunk in self.completion_stream_generate(session_object):
             if self._verbose:
@@ -648,18 +603,12 @@ class PlModelLoader(ABC):
                 continue
 
             if chunk.data_type == PlChunkDataType.CONTENT:  # type: ignore
-                content_buffer.append(chunk.data)  # type: ignore
                 total_tokens += 1
-                if len(content_buffer) >= _block_count_helper(total_tokens):
-                    helper.update_content_step(
-                        "".join(content_buffer),
-                        chunk.step,  # type: ignore
-                    )
-                    content_buffer.clear()
-                    build_result = helper.build_yield_text(return_json)
-                    logger.debug(f"SSE CHUNK CONTENT: {build_result}")
-                    yield build_result
-                    continue
+                helper.update_content_step(chunk.data, chunk.step)  # type: ignore
+                build_result = helper.build_yield_text(return_json)
+                logger.debug(f"SSE CHUNK CONTENT: {build_result}")
+                yield build_result
+                continue
 
             if chunk.data_type == PlChunkDataType.TOOLCALL:  # type: ignore
                 helper.update_tool_step(chunk.data, chunk.step)  # type: ignore
@@ -679,13 +628,6 @@ class PlModelLoader(ABC):
                 break
 
             if cached_finish_reason is not None:
-                if len(content_buffer) > 0:
-                    helper.update_content_step(
-                        "".join(content_buffer),
-                        chunk.step,  # type: ignore
-                    )
-                    content_buffer.clear()
-                    yield helper.build_yield_text(return_json)
                 break
 
         if cached_finish_reason is None:
