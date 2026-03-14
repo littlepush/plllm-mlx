@@ -1,174 +1,119 @@
-# plllm-mlx
+# 文档
 
-基于 MLX (Apple Silicon GPU) 的 LLM 推理服务，支持本地模型部署和 OpenAI 兼容 API。
-
-## 功能特性
-
-- **多模型加载器支持**: MLX (Apple Silicon), OpenAI 等
-- **多种 Step Processor**: 支持不同的模型输出格式解析
-- **OpenAI 兼容 API**: 完全兼容 OpenAI Chat Completions 和 Completions 接口
-- **流式输出**: 支持 Server-Sent Events (SSE) 流式响应
-- **Embedding & Rerank**: 内置 BGE-M3 embedding 模型支持
-- **Category 管理**: 支持多模型多 category 动态管理
-- **模型热插拔**: 支持运行时切换模型加载器和 step processor
-- **Prefix KV Cache**: 基于消息链的 KV Cache 复用，显著提升推理性能
-
-## 系统要求
-
-- macOS (Apple Silicon) 设备
-- Python 3.12+
-- 50GB+ 存储空间用于模型缓存
+欢迎使用 plllm-mlx 文档。
 
 ## 快速开始
 
-### 1. 安装依赖
+- [架构概览](ARCHITECTURE.md) - 系统设计和组件
+- [自述文件](../../README.md) - 快速入门指南
 
-```bash
-# 使用 pip
-pip install -e .
+## 核心概念
 
-# 或使用 uv
-uv pip install -e .
+### 模型加载器
+- MLX-LM 加载器 - 纯文本语言模型
+- MLX-VLM 加载器 - 视觉语言模型
+
+### 处理流程
+- Step 处理器 - 转换生成结果
+- KV 缓存 - 高效的提示缓存
+
+### 系统设计
+- 进程隔离 - 稳定的多模型服务
+- 流式传输 - 实时token推送
+
+## API 参考
+
+所有端点遵循 OpenAI API 规范：
+
+### 对话补全
+```
+POST /v1/chat/completions
 ```
 
-### 2. 环境配置
-
-设置 HuggingFace 缓存路径（可选）:
-
-```bash
-export HUGGING_FACE_PATH="$HOME/.cache/huggingface/hub"
+### 模型列表
+```
+GET /v1/models
 ```
 
-### 3. 启动服务
-
-```bash
-# 使用命令行工具
-plllm-mlx
-
-# 或直接运行
-python -m plllm_mlx
-
-# 或使用启动脚本
-./start.sh
+### 健康检查
+```
+GET /health
 ```
 
-服务默认监听 `http://0.0.0.0:8080`
+## 配置
 
-#### Dry Run 模式
+通过 YAML 文件或环境变量配置：
 
-用于测试所有 LLM 模型是否能正常响应，不会启动 HTTP 服务器：
-
-```bash
-./test.sh --dry-run
-# 或
-./start.sh --dry-run
-# 或
-python -m plllm_mlx --dry-run
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 8000
+  
+models:
+  - name: "default"
+    model_id: "Qwen/Qwen2.5-7B-Instruct"
+    loader: "mlx"
 ```
 
-启动后会对每个 LLM 模型发送 "hello" 测试请求，确保都能收到响应后退出。
+## 示例
 
-## API 接口
-
-### Chat Completions
-
+### 基础对话
 ```bash
-curl -X POST http://localhost:8080/ai/v1/chat/completions \
+curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen2.5-0.5b",
+    "model": "default",
     "messages": [{"role": "user", "content": "你好！"}],
     "stream": true
   }'
 ```
 
-### Embedding
+### 多轮对话
+```python
+messages = [
+    {"role": "system", "content": "你是一个助手。"},
+    {"role": "user", "content": "你好"},
+    {"role": "assistant", "content": "你好！"},
+    {"role": "user", "content": "你好吗？"}
+]
+```
 
+## 性能优化
+
+### 内存管理
+- 每个模型独立进程
+- 可配置缓存限制
+- LRU 淘汰策略
+
+### 优化建议
+- 多轮对话启用前缀缓存
+- 使用量化模型（4bit/8bit）
+- 调整预填充步长
+
+## 故障排除
+
+### 常见问题
+
+**模型未找到**
 ```bash
-curl -X POST http://localhost:8080/ai/v1/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "你好，世界！"
-  }'
+# 检查模型缓存
+ls ~/.cache/huggingface/hub/
 ```
 
-### 模型列表
-
+**内存错误**
 ```bash
-curl http://localhost:8080/ai/v1/models
+# 减少 max_tokens 或使用量化模型
 ```
 
-## 项目结构
+**流式传输慢**
+- 检查是否启用了流式
+- 验证 KV 缓存效果
 
-```
-plllm-mlx/
-├── plllm_mlx/
-│   ├── __init__.py
-│   ├── cli.py                # 命令行入口
-│   ├── models/
-│   │   ├── base_step_processor.py    # 基础 step processor
-│   │   ├── model_loader.py           # 模型加载器基类
-│   │   ├── mlx_loader.py             # MLX 模型加载器
-│   │   ├── openai_step_processor.py  # OpenAI 格式输出处理器
-│   │   └── step_processor.py         # Step processor 基类
-│   ├── routers/
-│   │   ├── chat.py           # Chat completions 路由
-│   │   ├── embedding.py      # Embedding 路由
-│   │   └── rerank.py         # Rerank 路由
-│   └── helpers/
-│       ├── chat_helper.py    # Chat 辅助工具
-│       ├── chunk_helper.py   # Chunk 处理工具
-│       └── chain_cache.py    # 消息链缓存
-├── docs/
-│   ├── cn/                   # 中文文档
-│   │   ├── README.md         # 总览
-│   │   ├── ARCHITECTURE.md   # 架构设计
-│   │   ├── API.md            # API 文档
-│   │   ├── KV_CACHE.md       # KV Cache 原理
-│   │   ├── CONFIGURATION.md  # 配置说明
-│   │   └── EXAMPLES.md       # 使用示例
-│   └── en/                   # 英文文档
-├── tests/                    # 测试用例
-└── pyproject.toml            # 项目配置
-```
+## 更多资源
 
-## 主要组件
+- [GitHub 仓库](https://github.com/littlepush/plllm-mlx)
+- [问题追踪](https://github.com/littlepush/plllm-mlx/issues)
 
-### Model Loader（模型加载器）
+---
 
-| 加载器 | 描述 |
-|--------|------|
-| mlx | Apple Silicon GPU 加速推理 |
-| openai | OpenAI API 兼容模型 |
-| mlxvlm | 视觉语言模型（支持图像输入） |
-
-### Step Processor（步骤处理器）
-
-| 处理器 | 描述 |
-|--------|------|
-| base | 基础文本输出 |
-| openai | OpenAI XML 格式输出（支持 tool_call） |
-| qwen3_thinking | Qwen3 思维链输出（支持 reasoning） |
-
-### Prefix KV Cache（前缀 KV 缓存）
-
-基于消息链的 Prefix KV Cache，使用消息内容（含 token）的 MD5 作为唯一标识，显著提升重复对话场景的推理性能。
-
-**核心优势**：
-- 支持多轮对话的缓存复用
-- 自动增量 prefill，减少计算量
-- 智能内存管理，自动淘汰旧缓存
-
-详见 [KV_CACHE.md](./KV_CACHE.md)。
-
-## 文档索引
-
-- [架构设计](./ARCHITECTURE.md) - 了解系统架构和核心组件
-- [API 文档](./API.md) - 完整的 API 接口说明
-- [KV Cache 原理](./KV_CACHE.md) - 深入理解缓存机制
-- [配置说明](./CONFIGURATION.md) - 详细的配置参数
-- [使用示例](./EXAMPLES.md) - 丰富的代码示例
-
-## License
-
-MIT
+[English Documentation](../README.md)
