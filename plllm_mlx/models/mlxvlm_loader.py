@@ -21,7 +21,7 @@ from plllm_mlx.logging_config import get_logger
 
 from .base_step_processor import PlStepProcessor
 from .kv_cache import PlKVCacheMessage, PlMessageBasedKVCache
-from .model_loader import PlModelLoader, _wrap_sync_generator_async, async_ticker
+from .model_loader import PlModelLoader, async_ticker
 
 logger = get_logger(__name__)
 
@@ -475,28 +475,24 @@ class PlMlxVlmModel(PlModelLoader):
         matched_chain = session_object.matched_chain
         session_images = getattr(session_object, "images", None) or []
 
-        def _sync_stream_generate():
-            for result in mlx_vlm_stream_generate(
-                self._model,
-                self._processor,
-                prompt=session_object.prompt,
-                image=session_images if session_images else None,
-                max_tokens=session_object.max_tokens,
-                prompt_cache=matched_chain.cache_item,
-                sampler=session_object.sampler,
-                logits_processors=session_object.logits_processors,
-                prefill_step_size=self._prefill_step_size,
-                kv_group_size=self._kv_group_size,
-                kv_bits=self._kv_bits,
-                quantized_kv_start=self._quantized_kv_start,
-                draft_model=None,
-            ):
-                yield result
-
         stpp = self.step_processor_clz()
 
         result_count = 0
-        async for gr in _wrap_sync_generator_async(_sync_stream_generate):
+        for gr in mlx_vlm_stream_generate(
+            self._model,
+            self._processor,
+            prompt=session_object.prompt,
+            image=session_images if session_images else None,
+            max_tokens=session_object.max_tokens,
+            prompt_cache=matched_chain.cache_item,
+            sampler=session_object.sampler,
+            logits_processors=session_object.logits_processors,
+            prefill_step_size=self._prefill_step_size,
+            kv_group_size=self._kv_group_size,
+            kv_bits=self._kv_bits,
+            quantized_kv_start=self._quantized_kv_start,
+            draft_model=None,
+        ):
             result_count += 1
 
             chunk = stpp.step(gr)
