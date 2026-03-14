@@ -114,14 +114,7 @@ class PlOpenAIStepProcessor(PlStepProcessor):
       logger.debug(f"Step error: {str(e)}")
       logger.debug(f"full content: {self.full_content}")
       logger.debug(f"new token: {gr.text}")
-      logger.debug(f"self status: {json.dumps({
-        "current_channel_name": self.current_channel_name,
-        "current_role": self.current_role,
-        "current_key_in_channel": self.current_key_in_channel,
-        "is_waiting_for_role": self.is_waiting_for_role,
-        "is_waiting_for_channel_name": self.is_waiting_for_channel_name,
-        "channel_buffer": self.channel_buffer
-      })}")
+      # logger.debug("self status: (debug disabled)")
       self.stop()
       return None
   
