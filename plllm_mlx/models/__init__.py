@@ -19,6 +19,11 @@ from .process_manager import PlProcessManager, PlModelSubprocess
 # KV Cache (requires psutil)
 from .kv_cache import PlMessageBasedKVCache, PlKVCacheMessage
 
+# Step processors (import to trigger registration)
+from .default_step_processor import PlDefaultStepProcessor
+from .qwen3_thinking_step_processor import Qwen3ThinkingStepProcessor
+from .openai_step_processor import PlOpenAIStepProcessor
+
 # Model loaders (require MLX - lazy import or optional)
 # These are imported automatically when model_loader.py is loaded
 # The loader classes register themselves via PlModelLoader.registerModelLoader()
