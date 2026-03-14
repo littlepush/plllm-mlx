@@ -51,14 +51,17 @@ A standalone MLX-based LLM inference service with OpenAI compatible API, designe
 
 ## Installation
 
-### Using uv (Recommended)
+### Using uv tool (Recommended)
 
 ```bash
-# Install as a tool
+# Install as a standalone tool
 uv tool install plllm-mlx
 
-# Run the service
-plllm-mlx --config config.yaml
+# Start the service
+plllm-mlx serve
+
+# Or with options
+plllm-mlx serve --port 8000 --config ~/.plllm-mlx/config.yaml
 ```
 
 ### From Source
@@ -72,30 +75,58 @@ cd plllm-mlx
 uv sync
 
 # Run the service
-uv run plllm-mlx --config config.yaml
+uv run plllm-mlx serve
 ```
 
 ## Quick Start
 
-### 1. Create Configuration
+### 1. Start Service
 
-Create `config.yaml`:
+```bash
+# Start service (registers as LaunchAgent)
+plllm-mlx serve
 
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8000
-  log_level: "info"
+# Check status
+plllm-mlx status
 
-models:
-  - name: "default"
-    model_id: "Qwen/Qwen2.5-7B-Instruct"
-    loader: "mlx"
-    max_tokens: 4096
-    temperature: 0.7
-    
-cache:
-  enable_prefix_cache: true
+# Stop service
+plllm-mlx stop
+```
+
+### 2. Manage Models
+
+```bash
+# List loaded models
+plllm-mlx ps
+
+# List all local models
+plllm-mlx ls
+
+# Search HuggingFace
+plllm-mlx search qwen
+
+# Download a model
+plllm-mlx download mlx-community/Qwen2.5-7B-8bit
+
+# Load/unload models
+plllm-mlx load Qwen2.5-7B-8bit
+plllm-mlx unload Qwen2.5-7B-8bit
+
+# Configure model
+plllm-mlx config Qwen2.5-7B-8bit temperature=0.8 max_tokens=2048
+```
+
+### 3. Use API
+
+```bash
+# Chat completion
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen2.5-7B-8bit",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
 ```
 
 ### 2. Start Service
