@@ -144,3 +144,8 @@ class PlOpenAIStepProcessor(PlStepProcessor):
     pl_log.debug(f"full content: {self.full_content}")
     finish_chunk = PlChunk(finish_reason=self.stop_reason)
     return finish_chunk
+
+# Register the step processor
+PlStepProcessor.registerStepProcessor("openai", PlOpenAIStepProcessor)
+logger.debug("Registered openai step processor")
+
