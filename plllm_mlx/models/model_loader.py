@@ -303,13 +303,11 @@ class PlModelLoader(ABC):
     async def stream_generate(self, session_object: Any):
         """Stream generate tokens from session object."""
         pass
-        yield  # type: ignore
 
     @abstractmethod
     async def completion_stream_generate(self, session_object: Any):
         """Stream generate for completion (non-chat) mode."""
         pass
-        yield  # type: ignore
 
     # Process isolation support
     async def stream_generate_via_process(
@@ -354,7 +352,7 @@ class PlModelLoader(ABC):
                 continue
             yield chunk
 
-    @async_ticker("PlModelLoader")
+    @yield_ticker("PlModelLoader")
     async def chat_completions_stream_with_isolation(
         self,
         body: dict,
