@@ -2,6 +2,8 @@
 
 A standalone MLX-based LLM inference service with OpenAI compatible API, designed specifically for Apple Silicon.
 
+**[Documentation](docs/README.md)** | **[中文文档](docs/cn/README.md)**
+
 ## Overview
 
 **plllm-mlx** is a production-ready inference service that provides:
