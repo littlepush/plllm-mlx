@@ -21,7 +21,7 @@ from plllm_mlx.logging_config import get_logger
 
 from .base_step_processor import PlStepProcessor
 from .kv_cache import PlKVCacheMessage, PlMessageBasedKVCache
-from .model_loader import PlModelLoader, async_ticker
+from .model_loader import PlModelLoader, _wrap_sync_generator_async, async_ticker
 
 logger = get_logger(__name__)
 
@@ -472,8 +472,6 @@ class PlMlxVlmModel(PlModelLoader):
 
     async def stream_generate(self, session_object: PlMlxVlmSessionStorage):
         """Stream generate tokens."""
-        loop = asyncio.get_event_loop()
-
         matched_chain = session_object.matched_chain
         session_images = getattr(session_object, "images", None) or []
 
@@ -497,12 +495,13 @@ class PlMlxVlmModel(PlModelLoader):
 
         stpp = self.step_processor_clz()
 
-        for gr in await loop.run_in_executor(
-            None, lambda: list(_sync_stream_generate())
-        ):
+        result_count = 0
+        async for gr in _wrap_sync_generator_async(_sync_stream_generate):
+            result_count += 1
+
             chunk = stpp.step(gr)
             if stpp.total_tokens >= self._max_output_tokens:
-                logger.info("Reached max output token size, force stop!")
+                logger.info("reach the max output token size, force to stop!")
                 break
             if chunk is not None:
                 yield chunk

@@ -105,6 +105,33 @@ def yield_ticker(name: str):
     return decorator
 
 
+async def _wrap_sync_generator_async(sync_gen_func):
+    """
+    Wrap a synchronous generator to be used as an async generator.
+
+    This ensures all MLX operations happen in the executor thread,
+    while maintaining streaming behavior by yielding each result
+    immediately after it's produced.
+
+    Args:
+        sync_gen_func: A function that returns a sync generator
+
+    Yields:
+        Each item from the sync generator
+    """
+    loop = asyncio.get_event_loop()
+    gen = sync_gen_func()
+
+    while True:
+        try:
+            result = await loop.run_in_executor(None, lambda: next(gen, None))
+            if result is None:
+                break
+            yield result
+        except StopIteration:
+            break
+
+
 class PlModelLoader(ABC):
     """
     Abstract base class for model loaders.
