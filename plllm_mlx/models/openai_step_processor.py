@@ -148,7 +148,3 @@ class PlOpenAIStepProcessor(PlStepProcessor):
 
 # Register the step processor
 PlStepProcessor.registerStepProcessor("openai", PlOpenAIStepProcessor)
-
-# Register the step processor
-PlStepProcessor.registerStepProcessor("openai", PlOpenAIStepProcessor)
-
