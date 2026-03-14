@@ -1,162 +1,465 @@
 """
-Command-line interface for plllm-mlx service.
+Command-line interface for plllm-mlx.
 
-This module provides the command-line entry point for running the plllm-mlx service.
-It parses command-line arguments, loads configuration, and starts the FastAPI server.
+This module provides a comprehensive CLI tool for managing plllm-mlx service.
 """
 
 from __future__ import annotations
 
-import argparse
-import logging
-import os
+import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from .config import PlConfig
-from .logging_config import setup_logging
+import typer
+from rich.console import Console
+from rich.table import Table
 
+from plllm_mlx import create_app
+from plllm_mlx.client import PlClient
+from plllm_mlx.config import PlConfig
+from plllm_mlx.daemon import (
+    DEFAULT_CONFIG,
+    LOG_FILE,
+    is_service_running,
+    start_service,
+    stop_service,
+)
+from plllm_mlx.logging_config import setup_logging
+from plllm_mlx.utils import format_config, format_number, parse_value, print_table
 
-def parse_args() -> argparse.Namespace:
-    """
-    Parse command line arguments.
-
-    Returns:
-        Parsed argument namespace with host, port, log_level, and config options.
-    """
-    parser = argparse.ArgumentParser(
-        prog="plllm-mlx",
-        description="Standalone MLX-based LLM inference service with OpenAI compatible API",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  plllm-mlx --config config.yaml
-  plllm-mlx --host 0.0.0.0 --port 8000
-  plllm-mlx --log-level debug
-
-For more information, visit: https://github.com/littlepush/plllm-mlx
-        """,
-    )
-
-    parser.add_argument(
-        "--config",
-        "-c",
-        type=str,
-        default=os.environ.get("PLLLM_MLX_CONFIG", "config.yaml"),
-        help="Path to configuration file (default: config.yaml, env: PLLLM_MLX_CONFIG)",
-    )
-    parser.add_argument(
-        "--host",
-        type=str,
-        default=os.environ.get("PLLLM_MLX_HOST", "0.0.0.0"),
-        help="Server host address (default: 0.0.0.0, env: PLLLM_MLX_HOST)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=int(os.environ.get("PLLLM_MLX_PORT", "8000")),
-        help="Server port (default: 8000, env: PLLLM_MLX_PORT)",
-    )
-    parser.add_argument(
-        "--log-level",
-        "-l",
-        type=str,
-        choices=["debug", "info", "warning", "error", "critical"],
-        default=os.environ.get("PLLLM_MLX_LOG_LEVEL", "info"),
-        help="Log level (default: info, env: PLLLM_MLX_LOG_LEVEL)",
-    )
-
-    return parser.parse_args()
+app = typer.Typer(
+    name="plllm-mlx",
+    help="Standalone MLX-based LLM inference service with OpenAI compatible API",
+    add_completion=False,
+)
+console = Console()
 
 
-def load_config(config_path: str) -> Optional[PlConfig]:
-    """
-    Load configuration from a YAML file.
-
-    Args:
-        config_path: Path to the configuration file.
-
-    Returns:
-        PlConfig instance if file exists, None otherwise.
-    """
-    path = Path(config_path)
-    if not path.exists():
-        logging.warning(f"Config file not found: {config_path}, using defaults")
-        return None
-
-    try:
-        return PlConfig.from_yaml(path)
-    except Exception as e:
-        logging.warning(f"Failed to load config file: {e}, using defaults")
-        return None
+# ==================== Serve Command ====================
 
 
-def main() -> int:
-    """
-    Main entry point for the plllm-mlx CLI.
+@app.command()
+def serve(
+    config: Path = typer.Option(
+        DEFAULT_CONFIG, "--config", "-c", help="Configuration file path"
+    ),
+    port: int = typer.Option(8000, "--port", "-p", help="Service port"),
+    log_level: str = typer.Option("info", "--log-level", "-l", help="Logging level"),
+):
+    """Start the service as LaunchAgent."""
+    console.print("[bold green]Starting plllm-mlx service...[/bold green]")
 
-    This function parses command-line arguments, loads configuration,
-    and starts the FastAPI server.
+    if is_service_running():
+        console.print("[yellow]Service already running[/yellow]")
+        return
 
-    Returns:
-        Exit code (0 for success, non-zero for errors).
-    """
-    args = parse_args()
-    logger = setup_logging(level=args.log_level)
+    success = start_service(config, port, log_level)
 
-    logger.info("Starting plllm-mlx service...")
-    logger.info(f"Configuration file: {args.config}")
-    logger.info(f"Server: {args.host}:{args.port}")
-    logger.info(f"Log level: {args.log_level}")
+    if success:
+        console.print(f"[green]✓[/green] Service started on port {port}")
+        console.print(f"  Config: {config}")
+        console.print(f"  Log: {LOG_FILE}")
+        console.print(f"\nTo view logs: [bold]tail -f {LOG_FILE}[/bold]")
+        console.print(f"To stop: [bold]plllm-mlx stop[/bold]")
+    else:
+        console.print("[red]✗ Failed to start service[/red]")
+        sys.exit(1)
+
+
+# ==================== Stop Command ====================
+
+
+@app.command()
+def stop():
+    """Stop the service."""
+    console.print("[bold]Stopping plllm-mlx service...[/bold]")
+
+    if not is_service_running():
+        console.print("[yellow]Service not running[/yellow]")
+        return
+
+    success = stop_service()
+
+    if success:
+        console.print("[green]✓[/green] Service stopped")
+    else:
+        console.print("[red]✗ Failed to stop service[/red]")
+        sys.exit(1)
+
+
+# ==================== Restart Command ====================
+
+
+@app.command()
+def restart():
+    """Restart the service."""
+    console.print("[bold]Restarting plllm-mlx service...[/bold]")
+
+    stop()
+
+    import time
+
+    time.sleep(2)
+
+    serve()
+
+
+# ==================== Run-Server Command (Internal) ====================
+
+
+@app.command("run-server", hidden=True)
+def run_server(
+    config: Path = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+    port: int = typer.Option(8000, "--port", "-p"),
+    log_level: str = typer.Option("info", "--log-level", "-l"),
+    host: str = typer.Option("0.0.0.0", "--host", "-h"),
+):
+    """Run the server (internal command, used by LaunchAgent)."""
+    logger = setup_logging(level=log_level)
+
+    logger.info(f"Starting server on {host}:{port}")
+    logger.info(f"Config: {config}")
 
     # Load configuration
-    config = load_config(args.config)
-    if config is None:
-        config = PlConfig()
+    if config.exists():
+        pl_config = PlConfig.from_yaml(config)
+    else:
+        pl_config = PlConfig()
 
-    # Merge command-line arguments
-    config = config.merge_with_overrides(
-        host=args.host,
-        port=args.port,
-        log_level=args.log_level,
+    # Create app
+    app_instance = create_app(
+        config=pl_config, host=host, port=port, log_level=log_level
     )
 
+    # Run server
+    import uvicorn
+
+    uvicorn.run(app_instance, host=host, port=port, log_level=log_level)
+
+
+# ==================== PS Command ====================
+
+
+@app.command()
+def ps(json_output: bool = typer.Option(False, "--json", help="Output as JSON")):
+    """List loaded models."""
+    client = PlClient()
+    models = client.list_models(loaded_only=True)
+
+    if json_output:
+        print(json.dumps(models, indent=2))
+        return
+
+    if not models:
+        console.print("[yellow]No models loaded[/yellow]")
+        return
+
+    table = Table(title="Loaded Models")
+    table.add_column("Model Name", style="cyan")
+    table.add_column("Loader", style="green")
+    table.add_column("Status", style="yellow")
+
+    for m in models:
+        table.add_row(m.get("model_name", ""), m.get("model_loader", "mlx"), "loaded")
+
+    console.print(table)
+
+
+# ==================== LS Command ====================
+
+
+@app.command("ls")
+def list_models(
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List all local models."""
+    client = PlClient()
+    models = client.list_models(loaded_only=False)
+
+    if json_output:
+        print(json.dumps(models, indent=2))
+        return
+
+    if not models:
+        console.print("[yellow]No models found[/yellow]")
+        return
+
+    table = Table(title="Local Models")
+    table.add_column("Model Name", style="cyan")
+    table.add_column("Loader", style="green")
+    table.add_column("Status", style="yellow")
+    table.add_column("Config", style="dim")
+
+    for m in models:
+        status = "loaded" if m.get("is_loaded") else "unloaded"
+        config = format_config(m.get("config", {}))
+        table.add_row(
+            m.get("model_name", ""), m.get("model_loader", "mlx"), status, config
+        )
+
+    console.print(table)
+
+
+# ==================== Search Command ====================
+
+
+@app.command()
+def search(
+    keyword: str = typer.Argument("", help="Search keyword"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Search models on HuggingFace."""
+    client = PlClient()
+
+    console.print(f"[bold]Searching for '{keyword or 'mlx'}'...[/bold]")
+    models = client.search_models(keyword, limit)
+
+    if json_output:
+        print(json.dumps(models, indent=2))
+        return
+
+    if not models:
+        console.print("[yellow]No models found[/yellow]")
+        return
+
+    table = Table(title=f"Search Results ({len(models)} found)")
+    table.add_column("Model ID", style="cyan")
+    table.add_column("Downloads", style="green")
+    table.add_column("Likes", style="yellow")
+
+    for m in models:
+        table.add_row(
+            m.get("model_id", ""),
+            format_number(m.get("downloads", 0)),
+            format_number(m.get("likes", 0)),
+        )
+
+    console.print(table)
+
+
+# ==================== Load Command ====================
+
+
+@app.command()
+def load(model_name: str = typer.Argument(..., help="Model name to load")):
+    """Load a model."""
+    client = PlClient()
+
+    console.print(f"[bold]Loading model: {model_name}[/bold]")
+
     try:
-        # Import server module (deferred import for faster startup)
-        from plllm_mlx import create_app
-        import uvicorn
-
-        # Create FastAPI application
-        app = create_app(
-            config=config,
-            host=args.host,
-            port=args.port,
-            log_level=args.log_level,
-        )
-
-        # Start the server
-        uvicorn.run(
-            app,
-            host=config.server.host,
-            port=config.server.port,
-            log_level=config.server.log_level,
-        )
-        return 0
-
-    except ImportError as e:
-        logger.error(f"Failed to import required module: {e}")
-        logger.error("Make sure plllm_mlx is properly installed")
-        return 1
-
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        return 0
-
+        result = client.load_model(model_name)
+        console.print(f"[green]✓[/green] Model {model_name} loaded")
     except Exception as e:
-        logger.exception(f"Unexpected error: {e}")
-        return 1
+        console.print(f"[red]✗ Failed to load model: {e}[/red]")
+        sys.exit(1)
+
+
+# ==================== Unload Command ====================
+
+
+@app.command()
+def unload(model_name: str = typer.Argument(..., help="Model name to unload")):
+    """Unload a model."""
+    client = PlClient()
+
+    console.print(f"[bold]Unloading model: {model_name}[/bold]")
+
+    try:
+        result = client.unload_model(model_name)
+        console.print(f"[green]✓[/green] Model {model_name} unloaded")
+    except Exception as e:
+        console.print(f"[red]✗ Failed to unload model: {e}[/red]")
+        sys.exit(1)
+
+
+# ==================== Reload Command ====================
+
+
+@app.command()
+def reload(model_name: str = typer.Argument(..., help="Model name to reload")):
+    """Reload a model."""
+    client = PlClient()
+
+    console.print(f"[bold]Reloading model: {model_name}[/bold]")
+
+    try:
+        client.unload_model(model_name)
+        client.load_model(model_name)
+        console.print(f"[green]✓[/green] Model {model_name} reloaded")
+    except Exception as e:
+        console.print(f"[red]✗ Failed to reload model: {e}[/red]")
+        sys.exit(1)
+
+
+# ==================== Download Command ====================
+
+
+@app.command()
+def download(
+    model_id: str = typer.Argument(..., help="HuggingFace model ID"),
+    loader: str = typer.Option("mlx", "--loader", "-l", help="Model loader type"),
+):
+    """Download a model from HuggingFace."""
+    client = PlClient()
+
+    console.print(f"[bold]Downloading: {model_id}[/bold]")
+
+    try:
+        result = client.download_model(model_id, loader)
+        task_id = result.get("task_id")
+        console.print(f"[green]✓[/green] Download started")
+        console.print(f"  Task ID: {task_id}")
+        console.print(
+            f"  Check status: [bold]plllm-mlx download-status {task_id}[/bold]"
+        )
+    except Exception as e:
+        console.print(f"[red]✗ Failed to start download: {e}[/red]")
+        sys.exit(1)
+
+
+# ==================== Download-Status Command ====================
+
+
+@app.command("download-status")
+def download_status(task_id: str = typer.Argument(..., help="Download task ID")):
+    """Check download status."""
+    client = PlClient()
+
+    try:
+        status = client.get_download_status(task_id)
+        console.print(f"[bold]Download Status:[/bold]")
+        console.print(f"  Task ID: {status.get('task_id')}")
+        console.print(f"  Model: {status.get('model_id')}")
+        console.print(f"  Status: {status.get('status')}")
+        console.print(f"  Message: {status.get('message')}")
+    except Exception as e:
+        console.print(f"[red]✗ Failed to get status: {e}[/red]")
+        sys.exit(1)
+
+
+# ==================== Delete Command ====================
+
+
+@app.command()
+def delete(model_name: str = typer.Argument(..., help="Model name to delete")):
+    """Delete a local model."""
+    client = PlClient()
+
+    console.print(f"[bold]Deleting model: {model_name}[/bold]")
+
+    try:
+        result = client.delete_model(model_name)
+        console.print(f"[green]✓[/green] Model {model_name} deleted")
+    except Exception as e:
+        console.print(f"[red]✗ Failed to delete model: {e}[/red]")
+        sys.exit(1)
+
+
+# ==================== Config Command ====================
+
+
+@app.command()
+def config(
+    model_name: str = typer.Argument(..., help="Model name"),
+    key_value: List[str] = typer.Argument(..., help="Key=value pairs"),
+):
+    """Configure model parameters."""
+    client = PlClient()
+
+    console.print(f"[bold]Configuring {model_name}...[/bold]")
+
+    for kv in key_value:
+        if "=" not in kv:
+            console.print(f"[red]Invalid format: {kv}. Expected key=value[/red]")
+            sys.exit(1)
+
+        key, value_str = kv.split("=", 1)
+        value = parse_value(value_str)
+
+        console.print(f"  {key} = {value}")
+
+        try:
+            client.update_config(model_name, key, value)
+        except Exception as e:
+            console.print(f"[red]✗ Failed to set {key}: {e}[/red]")
+            sys.exit(1)
+
+    console.print(f"[green]✓[/green] Configuration updated")
+
+
+# ==================== Status Command ====================
+
+
+@app.command()
+def status():
+    """Check service status."""
+    if not is_service_running():
+        console.print("[red]● Service not running[/red]")
+        console.print("Start with: [bold]plllm-mlx serve[/bold]")
+        return
+
+    client = PlClient()
+
+    console.print("[green]● Service running[/green]")
+
+    try:
+        models = client.list_models(loaded_only=True)
+        console.print(f"  Models loaded: {len(models)}")
+
+        for m in models:
+            console.print(f"    - {m.get('model_name')}")
+    except Exception as e:
+        console.print(f"[yellow]  Warning: Could not fetch model info: {e}[/yellow]")
+
+    console.print(f"  Config: {DEFAULT_CONFIG}")
+    console.print(f"  Log: {LOG_FILE}")
+
+
+# ==================== Default: Start Server ====================
+
+
+def main():
+    """Main entry point."""
+    # If no subcommand provided, start server (default behavior)
+    if len(sys.argv) == 1 or (
+        len(sys.argv) > 1
+        and not sys.argv[1].startswith("-")
+        and sys.argv[1]
+        not in [
+            "serve",
+            "stop",
+            "restart",
+            "run-server",
+            "ps",
+            "ls",
+            "search",
+            "load",
+            "unload",
+            "reload",
+            "download",
+            "download-status",
+            "delete",
+            "config",
+            "status",
+        ]
+    ):
+        # Default to starting server with config
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--config", "-c", default=str(DEFAULT_CONFIG))
+        parser.add_argument("--port", "-p", type=int, default=8000)
+        parser.add_argument("--log-level", "-l", default="info")
+        args = parser.parse_args()
+
+        config_path = Path(args.config)
+        serve(config=config_path, port=args.port, log_level=args.log_level)
+    else:
+        app()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
