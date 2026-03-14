@@ -21,7 +21,6 @@ from .kv_cache import PlMessageBasedKVCache, PlKVCacheMessage
 
 # Step processors (import to trigger registration)
 try:
-    from .default_step_processor import PlDefaultStepProcessor
     from .qwen3_thinking_step_processor import Qwen3ThinkingStepProcessor
     from .openai_step_processor import PlOpenAIStepProcessor
 except Exception as e:
