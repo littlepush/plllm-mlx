@@ -8,13 +8,12 @@ or other external storage. Model configurations are stored in memory only.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from plllm_mlx.helpers import get_hostname
+from plllm_mlx.helpers import get_hf_cache_dir, get_hostname
 from plllm_mlx.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -97,12 +96,9 @@ class PlLocalModelManager:
 
     def _load_local_models(self) -> None:
         """Load local models from HuggingFace cache."""
-        hg_path = os.environ.get(
-            "HUGGING_FACE_PATH", f"{Path.home()}/.cache/huggingface/hub"
-        )
-        cache_dir = Path(hg_path)
+        cache_dir = Path(get_hf_cache_dir())
         if not cache_dir.exists():
-            logger.info(f"HuggingFace cache directory not found: {hg_path}")
+            logger.info(f"HuggingFace cache directory not found: {cache_dir}")
             return
 
         models_folders = [p.name for p in cache_dir.iterdir() if p.is_dir()]

@@ -7,7 +7,6 @@ This module provides endpoints for downloading and managing models from HuggingF
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 import uuid
 from pathlib import Path
@@ -18,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from plllm_mlx.helpers import get_hf_cache_dir, get_model_cache_path
 from plllm_mlx.logging_config import get_logger
 from plllm_mlx.models.local_models import get_local_model_manager, PlLocalModelInfo
 
@@ -25,15 +25,8 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Model Manager"])
 
-# Get the singleton model manager
 localModelMgr = get_local_model_manager()
 
-# Get HuggingFace cache path
-HUGGINGFACE_PATH = os.environ.get(
-    "HUGGING_FACE_PATH", f"{Path.home()}/.cache/huggingface/hub"
-)
-
-# Track download tasks
 _download_tasks = {}
 
 
@@ -71,22 +64,17 @@ def _hf_matches_mlx(model_id: str) -> bool:
 
         # Try to download a config file to verify the model exists
         # Check for MLX-specific files
-        model_id_clean = model_id.replace("/", "--")
-        cache_model_dir = Path(HUGGINGFACE_PATH) / f"models--{model_id_clean}"
-        if cache_model_dir.exists():
-            # Check if snapshots contain mlx files
+        cache_model_dir = get_model_cache_path(model_id)
+        if cache_model_dir is not None:
             snapshots_dir = cache_model_dir / "snapshots"
             if snapshots_dir.exists():
                 for snap in snapshots_dir.iterdir():
                     if snap.is_dir():
-                        # Check for mlx files or configs
                         mlx_files = list(snap.glob("*.mlx")) + list(
                             snap.glob("mlx/**/*")
                         )
                         if mlx_files:
                             return True
-        # Fallback: return True to allow user to try any model
-        # The actual download will fail if not compatible
         return True
     except Exception:
         return True
@@ -170,11 +158,13 @@ async def _download_model_async(
     Background task to download a model from HuggingFace.
     Uses huggingface_hub to download files without git-lfs dependency.
     """
+    from plllm_mlx.models.model_detector import PlModelDetector
+
     try:
         _download_tasks[task_id]["status"] = "downloading"
         _download_tasks[task_id]["message"] = f"Starting download for {model_id}..."
 
-        cache_dir = Path(HUGGINGFACE_PATH)
+        cache_dir = Path(get_hf_cache_dir())
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         model_id_clean = model_id.replace("/", "--")
@@ -198,23 +188,31 @@ async def _download_model_async(
             lambda: snapshot_download(
                 repo_id=model_id,
                 local_dir=str(target_dir),
-                local_dir_use_symlinks=False,
-                resume_download=True,
             ),
         )
 
-        _download_tasks[task_id]["model_name"] = model_id
-        _download_tasks[task_id]["status"] = "completed"
-        _download_tasks[task_id]["message"] = (
-            f"Model {model_id} downloaded successfully"
-        )
-
         localModelMgr.reload_local_models()
+
+        if model_loader is None or step_processor is None:
+            _download_tasks[task_id]["message"] = (
+                "Auto-detecting model configuration..."
+            )
+            detected = PlModelDetector.detect_from_local(model_id)
+            if model_loader is None and detected.get("loader"):
+                model_loader = detected["loader"]
+            if step_processor is None and detected.get("step_processor"):
+                step_processor = detected["step_processor"]
 
         if model_loader is not None:
             await localModelMgr.update_model_loader(model_id, model_loader)
         if step_processor is not None:
             await localModelMgr.update_step_processor(model_id, step_processor)
+
+        _download_tasks[task_id]["model_name"] = model_id
+        _download_tasks[task_id]["status"] = "completed"
+        _download_tasks[task_id]["message"] = (
+            f"Model {model_id} downloaded successfully (loader={model_loader or 'default'}, stpp={step_processor or 'default'})"
+        )
 
         logger.info(f"Model {model_id} downloaded successfully")
 
@@ -292,15 +290,11 @@ async def delete_model(req: DeleteModelRequest):
     # Check if model exists in local storage
     model = localModelMgr.find_model(model_name)
     if model is None:
-        # Try to find in on-disk models
-        model_id_clean = model_name.replace("/", "--")
-        target_dir = Path(HUGGINGFACE_PATH) / f"models--{model_id_clean}"
-
-        if not target_dir.exists():
+        model_cache = get_model_cache_path(model_name)
+        if model_cache is None:
             raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
 
-        # Delete from disk
-        shutil.rmtree(target_dir, ignore_errors=True)
+        shutil.rmtree(model_cache, ignore_errors=True)
 
         return JSONResponse(
             {"status": "OK", "message": f"Model {model_name} deleted from disk"}
@@ -318,13 +312,10 @@ async def delete_model(req: DeleteModelRequest):
     if model_name in localModelMgr._model_configs:
         del localModelMgr._model_configs[model_name]
 
-    # Delete from disk
-    model_id_clean = model_name.replace("/", "--")
-    target_dir = Path(HUGGINGFACE_PATH) / f"models--{model_id_clean}"
-    if target_dir.exists():
-        shutil.rmtree(target_dir, ignore_errors=True)
+    model_cache = get_model_cache_path(model_name)
+    if model_cache is not None:
+        shutil.rmtree(model_cache, ignore_errors=True)
 
-    # Reload local models
     localModelMgr.reload_local_models()
 
     return JSONResponse(
@@ -337,11 +328,9 @@ async def list_local_models():
     """
     List all local models (both in-memory and on-disk).
     """
-    # Get models from manager
     models_info = localModelMgr.list_model_info()
 
-    # Also get models that are on disk but not loaded
-    cache_dir = Path(HUGGINGFACE_PATH)
+    cache_dir = Path(get_hf_cache_dir())
     disk_models = []
 
     if cache_dir.exists():

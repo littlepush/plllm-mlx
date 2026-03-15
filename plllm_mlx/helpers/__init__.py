@@ -10,6 +10,7 @@ This module provides utility classes and functions for:
 - Class discovery utilities (clz_helper)
 - Host utilities (host_helper)
 - Response utilities (response_helper)
+- Path utilities (path_helper)
 """
 
 from __future__ import annotations
@@ -19,6 +20,12 @@ from .chat_helper import PlChatCompletionHelper
 from .chunk_helper import PlChunk, PlChunkDataType
 from .clz_helper import PlFindSpecifialSubclass, PlRootPath, PlUnpackPath
 from .host_helper import get_hostname
+from .path_helper import (
+    get_hf_cache_dir,
+    get_model_cache_path,
+    get_model_snapshot_path,
+    HF_HUB_CACHE,
+)
 from .response_helper import get_finish_reason, PlMlxGetFinishReason
 from .step_info import PlStepHelper, PlStepUsage
 from .toolcall_helper import PlCommonToolcallParser
@@ -38,9 +45,14 @@ __all__: list[str] = [
     "PlUnpackPath",
     # Host utilities
     "get_hostname",
+    # Path utilities
+    "get_hf_cache_dir",
+    "get_model_cache_path",
+    "get_model_snapshot_path",
+    "HF_HUB_CACHE",
     # Response utilities
     "get_finish_reason",
-    "PlMlxGetFinishReason",  # Add alias for backward compatibility
+    "PlMlxGetFinishReason",
     # Step usage
     "PlStepHelper",
     "PlStepUsage",

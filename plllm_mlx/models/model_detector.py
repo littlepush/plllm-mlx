@@ -2,7 +2,7 @@
 HuggingFace model auto-detection utility.
 
 This module provides utilities for automatically detecting model characteristics
-from HuggingFace model names, including:
+from HuggingFace model names or local directories, including:
 1. Which loader to use (mlx vs mlxvlm)
 2. Which step processor to use (base vs qwen3_thinking vs openai)
 3. Model configuration parameters
@@ -10,8 +10,11 @@ from HuggingFace model names, including:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import json
+from pathlib import Path
+from typing import Any, Dict
 
+from plllm_mlx.helpers import get_model_snapshot_path
 from plllm_mlx.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -19,6 +22,96 @@ logger = get_logger(__name__)
 
 class PlModelDetector:
     """HuggingFace model auto-detection utility."""
+
+    @staticmethod
+    def detect_from_local(model_name_or_path: str) -> Dict[str, Any]:
+        """
+        Detect model information from local directory.
+
+        Args:
+            model_name_or_path: HuggingFace model name (e.g., "Qwen/Qwen3-8B")
+                               or local path to model directory.
+
+        Returns:
+            Dictionary containing loader, step_processor, and config info.
+        """
+        try:
+            model_path = Path(model_name_or_path)
+            if not model_path.is_absolute():
+                snapshot_path = get_model_snapshot_path(model_name_or_path)
+                if snapshot_path is None:
+                    logger.warning(f"Model not found in cache: {model_name_or_path}")
+                    return {
+                        "model_name": model_name_or_path,
+                        "error": "Model not found in cache",
+                    }
+                model_path = snapshot_path
+
+            config_path = model_path / "config.json"
+            if not config_path.exists():
+                logger.warning(f"Config not found: {config_path}")
+                return {
+                    "model_name": model_name_or_path,
+                    "error": "config.json not found",
+                }
+
+            with open(config_path, encoding="utf-8") as f:
+                config_data = json.load(f)
+
+            result: Dict[str, Any] = {
+                "model_name": model_name_or_path,
+                "model_type": config_data.get("model_type", "unknown"),
+                "architectures": config_data.get("architectures", []),
+                "loader": "mlx",
+                "step_processor": "base",
+                "is_vlm": False,
+                "is_qwen3": False,
+                "config": {},
+            }
+
+            if "vision_config" in config_data:
+                result["is_vlm"] = True
+                result["loader"] = "mlxvlm"
+                logger.info(
+                    f"[ModelDetector] Detected VLM from local config, using loader: mlxvlm"
+                )
+
+            model_type = config_data.get("model_type", "").lower()
+            if "qwen3" in model_type:
+                result["is_qwen3"] = True
+                result["step_processor"] = "qwen3think"
+                logger.info(
+                    f"[ModelDetector] Detected Qwen3 from local config, using step_processor: qwen3think"
+                )
+
+            max_pos_emb = config_data.get("max_position_embeddings")
+            result["config"] = {
+                "max_position_embeddings": max_pos_emb,
+                "vocab_size": config_data.get("vocab_size"),
+                "hidden_size": config_data.get("hidden_size"),
+                "num_hidden_layers": config_data.get("num_hidden_layers"),
+                "eos_token_id": config_data.get("eos_token_id"),
+                "bos_token_id": config_data.get("bos_token_id"),
+            }
+
+            if max_pos_emb:
+                result["config"]["recommended_max_output_tokens"] = min(
+                    max_pos_emb // 4, 16384
+                )
+                result["config"]["recommended_max_prompt_tokens"] = (
+                    max_pos_emb - result["config"]["recommended_max_output_tokens"]
+                )
+
+            logger.info(
+                f"[ModelDetector] Local detection complete: loader={result['loader']}, "
+                f"step_processor={result['step_processor']}"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"[ModelDetector] Failed to detect from local: {e}")
+            return {"model_name": model_name_or_path, "error": str(e)}
 
     @staticmethod
     def detect(model_name: str, trust_remote_code: bool = True) -> Dict[str, Any]:
