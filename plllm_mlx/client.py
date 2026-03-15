@@ -92,19 +92,30 @@ class PlClient:
         response.raise_for_status()
         return response.json().get("data", [])[:limit]
 
-    def load_model(self, model_name: str) -> Dict[str, Any]:
+    def load_model(
+        self,
+        model_name: str,
+        loader: Optional[str] = None,
+        step_processor: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Load a model.
 
         Args:
             model_name: Model name.
+            loader: Model loader type (mlx/mlxvlm). If None, auto-detect.
+            step_processor: Step processor type (base/qwen3think/openai). If None, auto-detect.
 
         Returns:
             Response data.
         """
-        response = self.client.post(
-            f"{self.base_url}/v1/model/load", json={"model_name": model_name}
-        )
+        payload: Dict[str, Any] = {"model_name": model_name}
+        if loader is not None:
+            payload["loader"] = loader
+        if step_processor is not None:
+            payload["step_processor"] = step_processor
+
+        response = self.client.post(f"{self.base_url}/v1/model/load", json=payload)
         response.raise_for_status()
         return response.json()
 
@@ -125,21 +136,31 @@ class PlClient:
         return response.json()
 
     def download_model(
-        self, model_id: str, model_loader: str = "mlx"
+        self,
+        model_id: str,
+        loader: Optional[str] = None,
+        step_processor: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Download a model.
 
         Args:
             model_id: HuggingFace model ID.
-            model_loader: Model loader type.
+            loader: Model loader type (mlx/mlxvlm). If None, auto-detect.
+            step_processor: Step processor type (base/qwen3think/openai). If None, auto-detect.
 
         Returns:
             Response with task_id.
         """
+        payload: Dict[str, Any] = {"model_id": model_id}
+        if loader is not None:
+            payload["model_loader"] = loader
+        if step_processor is not None:
+            payload["step_processor"] = step_processor
+
         response = self.client.post(
             f"{self.base_url}/v1/model/download",
-            json={"model_id": model_id, "model_loader": model_loader},
+            json=payload,
         )
         response.raise_for_status()
         return response.json()

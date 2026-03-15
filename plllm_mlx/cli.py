@@ -243,15 +243,39 @@ def search(
 
 
 @app.command()
-def load(model_name: str = typer.Argument(..., help="Model name to load")):
-    """Load a model."""
+def load(
+    model_name: str = typer.Argument(..., help="Model name to load"),
+    loader: Optional[str] = typer.Option(
+        None,
+        "--loader",
+        "-l",
+        help="Model loader (mlx/mlxvlm), auto-detect if not specified",
+    ),
+    stpp: Optional[str] = typer.Option(
+        None,
+        "--stpp",
+        help="Step processor (base/qwen3think/openai), auto-detect if not specified",
+    ),
+):
+    """Load a model.
+
+    If --loader and --stpp are not specified, they will be auto-detected.
+    """
     client = PlClient()
 
     console.print(f"[bold]Loading model: {model_name}[/bold]")
+    if loader:
+        console.print(f"  Loader: [cyan]{loader}[/cyan]")
+    if stpp:
+        console.print(f"  Step Processor: [cyan]{stpp}[/cyan]")
 
     try:
-        result = client.load_model(model_name)
+        result = client.load_model(model_name, loader=loader, step_processor=stpp)
         console.print(f"[green]✓[/green] Model {model_name} loaded")
+        console.print(f"  Loader: [cyan]{result.get('loader', 'unknown')}[/cyan]")
+        console.print(
+            f"  Step Processor: [cyan]{result.get('step_processor', 'unknown')}[/cyan]"
+        )
     except Exception as e:
         console.print(f"[red]✗ Failed to load model: {e}[/red]")
         sys.exit(1)
@@ -300,15 +324,32 @@ def reload(model_name: str = typer.Argument(..., help="Model name to reload")):
 @app.command()
 def download(
     model_id: str = typer.Argument(..., help="HuggingFace model ID"),
-    loader: str = typer.Option("mlx", "--loader", "-l", help="Model loader type"),
+    loader: Optional[str] = typer.Option(
+        None,
+        "--loader",
+        "-l",
+        help="Model loader (mlx/mlxvlm), auto-detect if not specified",
+    ),
+    stpp: Optional[str] = typer.Option(
+        None,
+        "--stpp",
+        help="Step processor (base/qwen3think/openai), auto-detect if not specified",
+    ),
 ):
-    """Download a model from HuggingFace."""
+    """Download a model from HuggingFace.
+
+    If --loader and --stpp are not specified, they will be auto-detected after download.
+    """
     client = PlClient()
 
     console.print(f"[bold]Downloading: {model_id}[/bold]")
+    if loader:
+        console.print(f"  Loader: [cyan]{loader}[/cyan]")
+    if stpp:
+        console.print(f"  Step Processor: [cyan]{stpp}[/cyan]")
 
     try:
-        result = client.download_model(model_id, loader)
+        result = client.download_model(model_id, loader=loader, step_processor=stpp)
         task_id = result.get("task_id")
         console.print(f"[green]✓[/green] Download started")
         console.print(f"  Task ID: {task_id}")

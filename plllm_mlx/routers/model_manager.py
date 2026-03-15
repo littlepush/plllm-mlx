@@ -12,6 +12,8 @@ import shutil
 import uuid
 from pathlib import Path
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -45,7 +47,8 @@ class SearchModelResponse(BaseModel):
 
 class DownloadRequest(BaseModel):
     model_id: str
-    model_loader: str = "mlx"
+    model_loader: Optional[str] = None
+    step_processor: Optional[str] = None
 
 
 class DownloadResponse(BaseModel):
@@ -157,21 +160,23 @@ async def search_models(keyword: str = ""):
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
-async def _download_model_async(task_id: str, model_id: str, model_loader: str):
+async def _download_model_async(
+    task_id: str,
+    model_id: str,
+    model_loader: Optional[str] = None,
+    step_processor: Optional[str] = None,
+):
     """
     Background task to download a model from HuggingFace.
     Uses huggingface_hub to download files without git-lfs dependency.
     """
     try:
-        # Update task status
         _download_tasks[task_id]["status"] = "downloading"
         _download_tasks[task_id]["message"] = f"Starting download for {model_id}..."
 
-        # Prepare cache directory
         cache_dir = Path(HUGGINGFACE_PATH)
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build the model path
         model_id_clean = model_id.replace("/", "--")
         target_dir = cache_dir / f"models--{model_id_clean}"
 
@@ -181,15 +186,12 @@ async def _download_model_async(task_id: str, model_id: str, model_loader: str):
             _download_tasks[task_id]["model_name"] = model_id
             return
 
-        # Create target directory
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Use huggingface_hub to download without git-lfs
         _download_tasks[task_id]["message"] = f"Downloading {model_id}..."
 
         from huggingface_hub import snapshot_download
 
-        # Download the model files in executor to avoid blocking
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
             None,
@@ -201,15 +203,18 @@ async def _download_model_async(task_id: str, model_id: str, model_loader: str):
             ),
         )
 
-        # Register the model in local model manager
         _download_tasks[task_id]["model_name"] = model_id
         _download_tasks[task_id]["status"] = "completed"
         _download_tasks[task_id]["message"] = (
             f"Model {model_id} downloaded successfully"
         )
 
-        # Reload local models to pick up the new model
         localModelMgr.reload_local_models()
+
+        if model_loader is not None:
+            await localModelMgr.update_model_loader(model_id, model_loader)
+        if step_processor is not None:
+            await localModelMgr.update_step_processor(model_id, step_processor)
 
         logger.info(f"Model {model_id} downloaded successfully")
 
@@ -227,27 +232,26 @@ async def download_model(req: DownloadRequest):
     """
     model_id = req.model_id
     model_loader = req.model_loader
+    step_processor = req.step_processor
 
-    # Validate model_id
     if not model_id or "/" not in model_id:
-        # Try to infer the full model id
         model_id = f"mlx-community/{model_id}"
 
-    # Generate task_id
     task_id = str(uuid.uuid4())
 
-    # Create task entry
     _download_tasks[task_id] = {
         "task_id": task_id,
         "model_id": model_id,
         "model_loader": model_loader,
+        "step_processor": step_processor,
         "status": "pending",
         "message": "Task created",
         "model_name": None,
     }
 
-    # Start background task
-    asyncio.create_task(_download_model_async(task_id, model_id, model_loader))
+    asyncio.create_task(
+        _download_model_async(task_id, model_id, model_loader, step_processor)
+    )
 
     return JSONResponse(
         {
