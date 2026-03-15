@@ -423,7 +423,18 @@ def status():
 
 def main():
     """Main entry point."""
-    # If no subcommand provided, start server (default behavior)
+    import platform
+
+    if platform.system() != "Darwin":
+        console = Console()
+        console.print(
+            "[red]Error: plllm-mlx only supports macOS (Apple Silicon).[/red]"
+        )
+        console.print(
+            "[yellow]This package requires MLX framework which is exclusive to macOS.[/yellow]"
+        )
+        sys.exit(1)
+
     if len(sys.argv) == 1 or (
         len(sys.argv) > 1
         and not sys.argv[1].startswith("-")
