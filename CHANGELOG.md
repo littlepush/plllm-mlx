@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-03-16
+
+### Added
+- Auto-detection of model loader (mlx/mlxvlm) and step processor from local config.json
+- CLI `load` command supports `--loader` and `--stpp` options for manual override
+- CLI `download` command supports `--loader` and `--stpp` options
+- `mlx-vlm` as required dependency for VLM model support
+- `path_helper.py` for unified HuggingFace cache path resolution (HF_HUB_CACHE, HF_HOME, HUGGING_FACE_PATH)
+
+### Changed
+- Unified API endpoints: removed duplicate `/v1/loader/load` and `/v1/loader/unload`
+- All model load/unload operations now use `/v1/model/load` and `/v1/model/unload`
+- Fixed `qwen3_thinking_step_processor.py` to use standard logging instead of plpybase
+- Fixed daemon.py to use local .venv when available instead of uv tool
+
 ## [1.2.0] - 2025-03-16
 
 ### Added
