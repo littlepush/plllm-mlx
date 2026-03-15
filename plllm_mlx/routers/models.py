@@ -30,6 +30,92 @@ VLM_INSTALL_HINT = (
 )
 
 
+async def ensure_model_loaded(
+    model_name: str, loader: Optional[str] = None, step_processor: Optional[str] = None
+) -> dict:
+    """
+    Ensure model is loaded with proper loader and step_processor.
+    Auto-detects if not specified and model uses default values.
+
+    Returns dict with loader and step_processor info.
+    """
+    model = localModelMgr.find_model(model_name)
+    if model is None:
+        raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
+
+    if model.is_loaded and loader is None and step_processor is None:
+        return {
+            "model_name": model_name,
+            "is_loaded": True,
+            "loader": type(model).model_loader_name(),
+            "step_processor": model.step_processor_clz.step_clz_name(),
+        }
+
+    model_info = localModelMgr._model_configs.get(model_name)
+    current_loader = model_info.model_loader if model_info else "mlx"
+    current_stpp = model_info.step_processor if model_info else "base"
+
+    if loader is None and step_processor is None:
+        need_detect = current_loader == "mlx" and current_stpp == "base"
+        if need_detect:
+            logger.info(f"Auto-detecting loader and step_processor for {model_name}")
+            try:
+                detected = PlModelDetector.detect_from_local(model_name)
+                if detected.get("loader") and detected["loader"] != current_loader:
+                    detected_loader = detected["loader"]
+                    available_loaders = PlModelLoader.listModelLoaders()
+                    if detected_loader not in available_loaders:
+                        if detected_loader == "mlxvlm":
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"VLM model detected, but 'mlxvlm' loader is not available. {VLM_INSTALL_HINT}",
+                            )
+                        else:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Detected loader '{detected_loader}' is not available. Available loaders: {available_loaders}",
+                            )
+                    loader = detected_loader
+                    logger.info(f"Detected loader: {loader}")
+                if (
+                    detected.get("step_processor")
+                    and detected["step_processor"] != current_stpp
+                ):
+                    step_processor = detected["step_processor"]
+                    logger.info(f"Detected step_processor: {step_processor}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Auto-detection failed for {model_name}: {e}")
+
+    if loader is not None:
+        await localModelMgr.update_model_loader(model_name, loader)
+    if step_processor is not None:
+        await localModelMgr.update_step_processor(model_name, step_processor)
+
+    if loader is not None or step_processor is not None:
+        model = localModelMgr.find_model(model_name)
+        if model is None:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to update model {model_name}"
+            )
+
+    await model.load_model()
+
+    model = localModelMgr.find_model(model_name)
+    if model is None:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get model info for {model_name}"
+        )
+
+    return {
+        "model_name": model_name,
+        "is_loaded": model.is_loaded,
+        "loader": type(model).model_loader_name(),
+        "step_processor": model.step_processor_clz.step_clz_name(),
+    }
+
+
 @router.get("/model/list")
 async def list_models():
     models = localModelMgr.list_model_info()
@@ -38,18 +124,19 @@ async def list_models():
 
 @router.get("/models")
 async def list_models_openai():
-    """OpenAI compatible endpoint - GET /v1/models"""
+    """OpenAI compatible endpoint - GET /v1/models (only loaded models)"""
     models = localModelMgr.list_model_info()
     openai_models = []
     for m in models:
-        openai_models.append(
-            {
-                "id": m["model_name"],
-                "object": "model",
-                "created": 0,
-                "owned_by": "plllm-mlx",
-            }
-        )
+        if m.get("is_loaded"):
+            openai_models.append(
+                {
+                    "id": m["model_name"],
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "plllm-mlx",
+                }
+            )
     return JSONResponse(
         {
             "object": "list",
@@ -115,91 +202,9 @@ class LoadModelRequest(BaseModel):
 
 @router.post("/model/load")
 async def load_model(req: LoadModelRequest):
-    model_name = req.model_name
-    loader = req.loader
-    step_processor = req.step_processor
-
-    model = localModelMgr.find_model(model_name)
-    if model is None:
-        raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
-
-    if model.is_loaded and loader is None and step_processor is None:
-        return JSONResponse(
-            {
-                "status": "OK",
-                "model_name": model_name,
-                "is_loaded": True,
-                "loader": type(model).model_loader_name(),
-                "step_processor": model.step_processor_clz.step_clz_name(),
-            }
-        )
-
-    model_info = localModelMgr._model_configs.get(model_name)
-    current_loader = model_info.model_loader if model_info else "mlx"
-    current_stpp = model_info.step_processor if model_info else "base"
-
-    if loader is None and step_processor is None:
-        need_detect = current_loader == "mlx" and current_stpp == "base"
-        if need_detect:
-            logger.info(f"Auto-detecting loader and step_processor for {model_name}")
-            try:
-                detected = PlModelDetector.detect_from_local(model_name)
-                if detected.get("loader") and detected["loader"] != current_loader:
-                    detected_loader = detected["loader"]
-                    available_loaders = PlModelLoader.listModelLoaders()
-                    if detected_loader not in available_loaders:
-                        if detected_loader == "mlxvlm":
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"VLM model detected, but 'mlxvlm' loader is not available. {VLM_INSTALL_HINT}",
-                            )
-                        else:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Detected loader '{detected_loader}' is not available. Available loaders: {available_loaders}",
-                            )
-                    loader = detected_loader
-                    logger.info(f"Detected loader: {loader}")
-                if (
-                    detected.get("step_processor")
-                    and detected["step_processor"] != current_stpp
-                ):
-                    step_processor = detected["step_processor"]
-                    logger.info(f"Detected step_processor: {step_processor}")
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.warning(f"Auto-detection failed for {model_name}: {e}")
-
-    if loader is not None:
-        await localModelMgr.update_model_loader(model_name, loader)
-    if step_processor is not None:
-        await localModelMgr.update_step_processor(model_name, step_processor)
-
-    if loader is not None or step_processor is not None:
-        model = localModelMgr.find_model(model_name)
-        if model is None:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to update model {model_name}"
-            )
-
-    await model.load_model()
-
-    model = localModelMgr.find_model(model_name)
-    if model is None:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get model info for {model_name}"
-        )
-
-    return JSONResponse(
-        {
-            "status": "OK",
-            "model_name": model_name,
-            "is_loaded": model.is_loaded,
-            "loader": type(model).model_loader_name(),
-            "step_processor": model.step_processor_clz.step_clz_name(),
-        }
-    )
+    result = await ensure_model_loaded(req.model_name, req.loader, req.step_processor)
+    result["status"] = "OK"
+    return JSONResponse(result)
 
 
 @router.post("/model/unload")

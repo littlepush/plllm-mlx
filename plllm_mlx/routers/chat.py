@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from plllm_mlx.logging_config import get_logger
 from plllm_mlx.models.local_models import get_local_model_manager
+from plllm_mlx.routers.models import ensure_model_loaded
 
 logger = get_logger(__name__)
 
@@ -72,6 +73,25 @@ async def chat_completions(req: Request):
     if local_model is None:
         logger.error(f"model {model} not found")
         raise HTTPException(status_code=400, detail=f"model {model} not found")
+
+    # Auto-load model if not loaded (with auto-detection)
+    if not local_model.is_loaded:
+        logger.info(f"Model {model} not loaded, auto-loading...")
+        try:
+            await ensure_model_loaded(model)
+            local_model = localModelMgr.find_model(model)
+            if local_model is None:
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to get model {model} after loading"
+                )
+            logger.info(f"Model {model} auto-loaded successfully")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to auto-load model {model}: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to load model {model}: {e}"
+            )
 
     # Acquire semaphore for concurrent chat control (with timeout)
     semaphore = await get_chat_semaphore()
