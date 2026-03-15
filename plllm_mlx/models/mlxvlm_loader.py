@@ -22,6 +22,7 @@ from plllm_mlx.logging_config import get_logger
 from .base_step_processor import PlStepProcessor
 from .kv_cache import PlKVCacheMessage, PlMessageBasedKVCache
 from .model_loader import PlModelLoader, async_ticker
+from .special_tokens import SpecialTokens, detect_special_tokens
 
 logger = get_logger(__name__)
 
@@ -99,6 +100,7 @@ class PlMlxVlmModel(PlModelLoader):
         self._processor = None
         self._tokenizer = None
         self._lock = asyncio.Lock()
+        self._special_tokens: Optional[SpecialTokens] = None
         self._begin_tokens = ["<|start|>", "<|im_start|>"]
         self._end_tokens = ["<|end|>", "<|im_end|>"]
         self._vision_begin_tokens = ["<|vision_start|>"]
@@ -189,6 +191,15 @@ class PlMlxVlmModel(PlModelLoader):
             logger.info(f"Loading mlx-vlm model: {self.model_name}")
             self._model, self._processor = load(self.model_name)
             self._tokenizer = self._processor.tokenizer
+
+            # Auto-detect special tokens
+            self._special_tokens = detect_special_tokens(self._tokenizer)
+            self._begin_tokens = self._special_tokens.begin_tokens
+            self._end_tokens = self._special_tokens.end_tokens
+            if self._special_tokens.vision_start_token:
+                self._vision_begin_tokens = [self._special_tokens.vision_start_token]
+            if self._special_tokens.vision_end_token:
+                self._vision_end_tokens = [self._special_tokens.vision_end_token]
 
             # Try to get max_position_embeddings
             try:
@@ -494,7 +505,7 @@ class PlMlxVlmModel(PlModelLoader):
             ):
                 yield result
 
-        stpp = self.step_processor_clz()
+        stpp = self.step_processor_clz(self._special_tokens)
 
         result_count = 0
         for gr in await loop.run_in_executor(None, lambda: _sync_stream_generate()):

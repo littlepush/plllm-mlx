@@ -9,8 +9,11 @@ from plllm_mlx.helpers import (
 from plllm_mlx.models.base_step_processor import PlStepProcessor
 
 logger = get_logger(__name__)
-from typing import Any, Optional, List
+from typing import Any, Optional, List, TYPE_CHECKING
 import time
+
+if TYPE_CHECKING:
+    from plllm_mlx.models.special_tokens import SpecialTokens
 
 
 class Qwen3ThinkingStepProcessor(PlStepProcessor):
@@ -23,8 +26,8 @@ class Qwen3ThinkingStepProcessor(PlStepProcessor):
     - After </think>, regular content generation begins
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, special_tokens: Optional["SpecialTokens"] = None):
+        super().__init__(special_tokens)
         self.is_in_thinking = False  # Test for `add_generation_prompt=False` in loader, if False, start with thinking mode
         self.toolcall_buffer = []
         self.first_token_time = None
