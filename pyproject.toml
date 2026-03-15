@@ -41,10 +41,6 @@ dev = [
 [project.scripts]
 plllm-mlx = "plllm_mlx.cli:main"
 
-[[tool.uv.index]]
-url = "https://repo.huaweicloud.com/repository/pypi/simple/"
-default = true
-
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
