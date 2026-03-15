@@ -15,12 +15,19 @@ from pydantic import BaseModel
 from plllm_mlx.logging_config import get_logger
 from plllm_mlx.models.local_models import get_local_model_manager
 from plllm_mlx.models.model_detector import PlModelDetector
+from plllm_mlx.models.model_loader import PlModelLoader
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Models"])
 
 localModelMgr = get_local_model_manager()
+
+VLM_INSTALL_HINT = (
+    "VLM (Vision Language Model) support requires additional dependencies. "
+    "Please install with: pip install 'plllm-mlx[vlm]' "
+    "or: uv pip install 'plllm-mlx[vlm]'"
+)
 
 
 @router.get("/model/list")
@@ -116,7 +123,20 @@ async def load_model(req: LoadModelRequest):
             try:
                 detected = PlModelDetector.detect_from_local(model_name)
                 if detected.get("loader") and detected["loader"] != current_loader:
-                    loader = detected["loader"]
+                    detected_loader = detected["loader"]
+                    available_loaders = PlModelLoader.listModelLoaders()
+                    if detected_loader not in available_loaders:
+                        if detected_loader == "mlxvlm":
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"VLM model detected, but 'mlxvlm' loader is not available. {VLM_INSTALL_HINT}",
+                            )
+                        else:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Detected loader '{detected_loader}' is not available. Available loaders: {available_loaders}",
+                            )
+                    loader = detected_loader
                     logger.info(f"Detected loader: {loader}")
                 if (
                     detected.get("step_processor")
@@ -124,6 +144,8 @@ async def load_model(req: LoadModelRequest):
                 ):
                     step_processor = detected["step_processor"]
                     logger.info(f"Detected step_processor: {step_processor}")
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(f"Auto-detection failed for {model_name}: {e}")
 

@@ -78,6 +78,23 @@ uv sync
 uv run plllm-mlx serve
 ```
 
+### VLM Support (Vision Language Models)
+
+For VLM models (e.g., Qwen2.5-VL, Qwen3.5-VL), install with VLM dependencies:
+
+```bash
+# Using uv tool
+uv tool install 'plllm-mlx[vlm]'
+
+# Using pip
+pip install 'plllm-mlx[vlm]'
+
+# If already installed, add VLM support
+uv tool install 'plllm-mlx[vlm]' --force
+# or
+pip install torch torchvision
+```
+
 ## Quick Start
 
 ### 1. Start Service
