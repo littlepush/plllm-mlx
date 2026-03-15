@@ -6,14 +6,20 @@ This module provides endpoints for managing local models.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
+from plllm_mlx.logging_config import get_logger
 from plllm_mlx.models.local_models import get_local_model_manager
+from plllm_mlx.models.model_detector import PlModelDetector
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Models"])
 
-# Get the singleton model manager
 localModelMgr = get_local_model_manager()
 
 
@@ -72,27 +78,84 @@ async def update_model_config(req: Request):
     return JSONResponse({"status": "OK" if result else "Failed"})
 
 
+class LoadModelRequest(BaseModel):
+    model_name: str
+    loader: Optional[str] = None
+    step_processor: Optional[str] = None
+
+
 @router.post("/model/load")
-async def load_model(req: Request):
-    body = await req.json()
-    model_name = body.get("model_name", "")
-    if model_name == "":
-        raise HTTPException(status_code=400, detail="model_name is required")
+async def load_model(req: LoadModelRequest):
+    model_name = req.model_name
+    loader = req.loader
+    step_processor = req.step_processor
+
     model = localModelMgr.find_model(model_name)
     if model is None:
-        raise HTTPException(status_code=400, detail=f"model {model_name} not found")
+        raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
+
+    model_info = localModelMgr._model_configs.get(model_name)
+    current_loader = model_info.model_loader if model_info else "mlx"
+    current_stpp = model_info.step_processor if model_info else "base"
+
+    if loader is None and step_processor is None:
+        need_detect = current_loader == "mlx" and current_stpp == "base"
+        if need_detect:
+            logger.info(f"Auto-detecting loader and step_processor for {model_name}")
+            try:
+                detected = PlModelDetector.detect_from_local(model_name)
+                if detected.get("loader") and detected["loader"] != current_loader:
+                    loader = detected["loader"]
+                    logger.info(f"Detected loader: {loader}")
+                if (
+                    detected.get("step_processor")
+                    and detected["step_processor"] != current_stpp
+                ):
+                    step_processor = detected["step_processor"]
+                    logger.info(f"Detected step_processor: {step_processor}")
+            except Exception as e:
+                logger.warning(f"Auto-detection failed for {model_name}: {e}")
+
+    if loader is not None:
+        await localModelMgr.update_model_loader(model_name, loader)
+    if step_processor is not None:
+        await localModelMgr.update_step_processor(model_name, step_processor)
+
+    if loader is not None or step_processor is not None:
+        model = localModelMgr.find_model(model_name)
+        if model is None:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to update model {model_name}"
+            )
+
     await model.load_model()
-    return JSONResponse({"status": "OK"})
+
+    model = localModelMgr.find_model(model_name)
+    if model is None:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get model info for {model_name}"
+        )
+
+    return JSONResponse(
+        {
+            "status": "OK",
+            "model_name": model_name,
+            "is_loaded": model.is_loaded,
+            "loader": type(model).model_loader_name(),
+            "step_processor": model.step_processor_clz.step_clz_name(),
+        }
+    )
 
 
 @router.post("/model/unload")
-async def unload_model(req: Request):
-    body = await req.json()
-    model_name = body.get("model_name", "")
-    if model_name == "":
-        raise HTTPException(status_code=400, detail="model_name is required")
+async def unload_model(req: LoadModelRequest):
+    model_name = req.model_name
+
     model = localModelMgr.find_model(model_name)
     if model is None:
-        raise HTTPException(status_code=400, detail=f"model {model_name} not found")
+        raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
+
     await model.unload_model()
-    return JSONResponse({"status": "OK"})
+    return JSONResponse(
+        {"status": "OK", "model_name": model_name, "is_loaded": model.is_loaded}
+    )
