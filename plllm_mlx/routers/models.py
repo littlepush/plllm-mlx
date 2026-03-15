@@ -36,6 +36,28 @@ async def list_models():
     return JSONResponse({"data": models})
 
 
+@router.get("/models")
+async def list_models_openai():
+    """OpenAI compatible endpoint - GET /v1/models"""
+    models = localModelMgr.list_model_info()
+    openai_models = []
+    for m in models:
+        openai_models.append(
+            {
+                "id": m["model_name"],
+                "object": "model",
+                "created": 0,
+                "owned_by": "plllm-mlx",
+            }
+        )
+    return JSONResponse(
+        {
+            "object": "list",
+            "data": openai_models,
+        }
+    )
+
+
 @router.post("/model/reload")
 async def reload_models():
     localModelMgr.reload_local_models()
