@@ -55,7 +55,7 @@ async def load_model(req: LoadModelRequest):
         if need_detect:
             logger.info(f"Auto-detecting loader and step_processor for {model_name}")
             try:
-                detected = PlModelDetector.detect(model_name)
+                detected = PlModelDetector.detect_from_local(model_name)
                 if detected.get("loader") and detected["loader"] != current_loader:
                     loader = detected["loader"]
                     logger.info(f"Detected loader: {loader}")
