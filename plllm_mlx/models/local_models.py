@@ -385,6 +385,7 @@ class PlLocalModelManager:
                 "model_name": model.model_name,
                 "model_loader": type(model).model_loader_name(),
                 "step_processor": model.step_processor_clz.step_clz_name(),
+                "is_loaded": model.is_loaded,
                 "config": model.get_config(),
             }
             result.append(info)

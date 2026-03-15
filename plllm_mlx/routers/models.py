@@ -94,6 +94,17 @@ async def load_model(req: LoadModelRequest):
     if model is None:
         raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
 
+    if model.is_loaded and loader is None and step_processor is None:
+        return JSONResponse(
+            {
+                "status": "OK",
+                "model_name": model_name,
+                "is_loaded": True,
+                "loader": type(model).model_loader_name(),
+                "step_processor": model.step_processor_clz.step_clz_name(),
+            }
+        )
+
     model_info = localModelMgr._model_configs.get(model_name)
     current_loader = model_info.model_loader if model_info else "mlx"
     current_stpp = model_info.step_processor if model_info else "base"

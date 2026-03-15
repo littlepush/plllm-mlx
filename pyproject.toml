@@ -21,6 +21,8 @@ classifiers = [
 dependencies = [
     "mlx-lm>=0.9.0",
     "mlx-vlm",
+    "torch",
+    "torchvision",
     "transformers",
     "fastapi",
     "uvicorn",
