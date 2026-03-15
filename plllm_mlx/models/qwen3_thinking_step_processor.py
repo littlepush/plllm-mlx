@@ -1,5 +1,11 @@
 from plllm_mlx.logging_config import get_logger
-from plllm_mlx.helpers import PlChunk, PlChunkDataType, PlStepUsage, PlCommonToolcallParser
+from plllm_mlx.helpers import (
+    PlChunk,
+    PlChunkDataType,
+    PlStepUsage,
+    PlCommonToolcallParser,
+    PlMlxGetFinishReason,
+)
 from plllm_mlx.models.base_step_processor import PlStepProcessor
 
 logger = get_logger(__name__)
@@ -159,6 +165,7 @@ class Qwen3ThinkingStepProcessor(PlStepProcessor):
         # logger.debug(f"full content: {self.full_content}")
         finish_chunk = PlChunk(finish_reason=self.stop_reason)
         return finish_chunk
+
 
 # Register the step processor
 PlStepProcessor.registerStepProcessor("qwen3think", Qwen3ThinkingStepProcessor)
