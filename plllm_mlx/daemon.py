@@ -46,15 +46,18 @@ def generate_plist(config_path: Path, port: int = 8000, log_level: str = "info")
     Returns:
         Plist XML content as string.
     """
-    # Find uv executable
-    uv_path = Path.home() / ".local" / "bin" / "uv"
-    if not uv_path.exists():
-        # Try to find in PATH
-        result = subprocess.run(["which", "uv"], capture_output=True, text=True)
-        if result.returncode == 0:
-            uv_path = Path(result.stdout.strip())
-        else:
-            raise RuntimeError("uv not found. Please install uv first.")
+    import sys
+
+    project_root = Path(__file__).resolve().parent.parent
+    venv_bin = project_root / ".venv" / "bin" / "plllm-mlx"
+    if venv_bin.exists():
+        executable = str(venv_bin)
+    else:
+        executable = sys.executable.rsplit("/", 1)[0] + "/plllm-mlx"
+        if not Path(executable).exists():
+            uv_path = Path.home() / ".local" / "bin" / "uv"
+            if uv_path.exists():
+                executable = f"{uv_path} run plllm-mlx"
 
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -65,12 +68,7 @@ def generate_plist(config_path: Path, port: int = 8000, log_level: str = "info")
     
     <key>ProgramArguments</key>
     <array>
-        <string>{uv_path}</string>
-        <string>tool</string>
-        <string>run</string>
-        <string>--from</string>
-        <string>plllm-mlx</string>
-        <string>plllm-mlx</string>
+        <string>{executable}</string>
         <string>run-server</string>
         <string>--config</string>
         <string>{config_path}</string>
