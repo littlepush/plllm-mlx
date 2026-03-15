@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-03-16
+
+### Added
+- Clear error message when VLM model detected but dependencies not installed
+- Installation hint: `pip install 'plllm-mlx[vlm]'`
+- VLM support section in README with installation instructions
+
+### Fixed
+- Check loader availability before using detected loader
+- Add `is_loaded` field to model list response
+- Skip re-loading if model already loaded
+
 ## [1.3.0] - 2025-03-16
 
 ### Added
