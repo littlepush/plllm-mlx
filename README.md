@@ -51,6 +51,8 @@ A standalone MLX-based LLM inference service with OpenAI compatible API, designe
 
 ## Installation
 
+> **Note**: `plx` is an alias for `plllm-mlx`. You can use either command interchangeably.
+
 ### Using uv tool (Recommended)
 
 ```bash

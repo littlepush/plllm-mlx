@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2025-03-16
+
+### Added
+- `plx` command alias for `plllm-mlx` (shorter and easier to type)
+- Channel and message token detection for GPT-OSS models
+
+### Changed
+- GPT-OSS step processor now uses dynamic `special_tokens.channel_token` and `special_tokens.message_token`
+- Chat display format: `[You]:`, `[Assistant]:`, `[Reasoning]:`
+- Reasoning content now displays with dim style
+
+### Removed
+- Deprecated `openai_step_processor.py` - use `gpt_oss_step_processor.py` instead
+- Deprecated `qwen3_thinking_step_processor.py` - use `thinking_step_processor.py` instead
+
 ## [1.4.3] - 2025-03-16
 
 ### Changed
