@@ -222,6 +222,7 @@ def _run_chat_round(client: ChatClient, user_input: str) -> bool:
         return True
 
     console.print()
+    console.print("[bold green]Assistant:[/bold green]", end="")
 
     usage = None
     try:
@@ -234,9 +235,12 @@ def _run_chat_round(client: ChatClient, user_input: str) -> bool:
             if chunk.usage:
                 usage = chunk.usage
     except httpx.TimeoutException:
+        console.print()
+        console.print("[red]Error: Request timed out[/red]")
         return True
     except Exception as e:
-        console.print(f"\n[red]Error: {e}[/red]")
+        console.print()
+        console.print(f"[red]Error: {e}[/red]")
         return True
 
     console.print()
@@ -244,7 +248,6 @@ def _run_chat_round(client: ChatClient, user_input: str) -> bool:
     if usage:
         _print_usage(usage)
 
-    console.print()
     return True
 
 
