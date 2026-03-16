@@ -29,21 +29,20 @@ class PlThinkingStepProcessor(PlStepProcessor):
     """
     Thinking step processor with dynamic special token support.
 
-    Handles:
-    - Message boundary tokens (begin_tokens, end_tokens) - filtered out
-    - Thinking/reasoning mode (detects think_start_token and think_end_token)
-    - Tool call processing (when special_tokens.has_tool_call() is True)
+    Qwen3 models have a unique thinking mechanism:
+    - The thinking process starts from the first token (no explicit think_start tag needed)
+    - Thinking continues until think_end tag is encountered
+    - After think_end, regular content generation begins
     """
 
     def __init__(self, special_tokens: Optional["SpecialTokens"] = None):
         super().__init__(special_tokens)
-        self._is_in_thinking = False
-        self._toolcall_buffer: List[str] = []
-        self._first_token_time: Optional[float] = None
-        self._stop_reason: str = ""
-        self._is_stop_by_length: bool = False
-        self._full_content: str = ""
-        self._in_tool_call: bool = False
+        self.is_in_thinking = False
+        self.toolcall_buffer = []
+        self.first_token_time = None
+        self.stop_reason = ""
+        self.is_stop_by_length = False
+        self.full_content = ""
 
     @staticmethod
     def step_clz_name() -> str:
@@ -53,219 +52,150 @@ class PlThinkingStepProcessor(PlStepProcessor):
         gr = generate_response
         self.total_tokens += 1
         if gr is not None:
-            self._full_content += gr.text
+            self.full_content += gr.text
 
-        if self._first_token_time is None:
-            self._first_token_time = time.time()
+        if self.first_token_time is None:
+            self.first_token_time = time.time()
 
+        # Just stop the generation
         if (gr is not None) and (PlMlxGetFinishReason(gr) is not None):
-            self._is_stop_by_length = PlMlxGetFinishReason(gr) == "length"
-            self._stop_reason = PlMlxGetFinishReason(gr) or "stop"
+            self.is_stop_by_length = (
+                True if PlMlxGetFinishReason(gr) == "length" else False
+            )
+            self.stop_reason = (
+                PlMlxGetFinishReason(gr) if PlMlxGetFinishReason(gr) else "stop"
+            )
             self.stop()
             return None
 
-        step_text = self.unprocessed_text + (gr.text if gr is not None else "")
+        # Handle thinking mode
+        step_text_to_process = self.unprocessed_text + (
+            gr.text if gr is not None else ""
+        )
         self.unprocessed_text = ""
 
-        if not step_text:
+        if step_text_to_process == "":
             return None
 
         tokens = self.special_tokens
 
-        # Step 1: Filter out begin_tokens and end_tokens
-        step_text = self._filter_boundary_tokens(step_text, tokens)
-        if not step_text:
-            return None
-
-        # Step 2: Handle thinking mode
-        if tokens.has_thinking():
-            result = self._handle_thinking(step_text, tokens)
-            if result is not None:
-                return result
-            step_text = self.unprocessed_text
-            self.unprocessed_text = ""
-            if not step_text:
-                return None
-
-        # Step 3: Handle tool call mode
-        if tokens.has_tool_call():
-            result = self._handle_tool_call(step_text, tokens)
-            if result is not None:
-                return result
-            if self._in_tool_call:
-                return None
-
-        # Step 4: Output content
-        if step_text:
-            data_type = (
-                PlChunkDataType.REASONING
-                if self._is_in_thinking
-                else PlChunkDataType.CONTENT
+        if not self.is_in_thinking:
+            # Check for begin token to detect start of thinking
+            has_begin_token = any(
+                bt in step_text_to_process for bt in tokens.begin_tokens if bt
             )
-            return self._build_chunk(step_text, gr, data_type)
+            if has_begin_token:
+                # Check if think_start_token is present
+                if (
+                    tokens.think_start_token
+                    and tokens.think_start_token in step_text_to_process
+                ):
+                    self.is_in_thinking = True
+                    step_text_to_process = step_text_to_process[
+                        step_text_to_process.find(tokens.think_start_token)
+                        + len(tokens.think_start_token) :
+                    ]
+                else:
+                    # Not enough tokens
+                    self.unprocessed_text = step_text_to_process
+                    return None
 
-        return None
+        if self.is_in_thinking:
+            if (
+                tokens.think_end_token
+                and tokens.think_end_token in step_text_to_process
+            ):
+                text_before_end_think = step_text_to_process[
+                    : step_text_to_process.find(tokens.think_end_token)
+                ]
+                if text_before_end_think != "":
+                    # Unprocessed text include think_end_token
+                    self.unprocessed_text = step_text_to_process[
+                        step_text_to_process.find(tokens.think_end_token) :
+                    ]
+                    # Process the thinking text before think_end_token
+                    step_text_to_process = text_before_end_think
+                else:
+                    self.is_in_thinking = False
+                    step_text_to_process = step_text_to_process[
+                        step_text_to_process.find(tokens.think_end_token)
+                        + len(tokens.think_end_token) :
+                    ]
+                    if step_text_to_process == "":
+                        return None
 
-    def _filter_boundary_tokens(self, text: str, tokens: "SpecialTokens") -> str:
-        """Filter out begin_tokens and end_tokens from text."""
-        result = text
-
-        for bt in tokens.begin_tokens:
-            if bt:
-                result = result.replace(bt, "")
-
-        for et in tokens.end_tokens:
-            if et:
-                result = result.replace(et, "")
-
-        return result
-
-    def _handle_thinking(self, text: str, tokens: "SpecialTokens") -> Optional[PlChunk]:
-        """Handle thinking mode transitions. Returns chunk if ready, None if buffering."""
-        think_start = tokens.think_start_token
-        think_end = tokens.think_end_token
-
-        if not think_start or not think_end:
-            return None
-
-        if not self._is_in_thinking:
-            if think_start in text:
-                idx = text.find(think_start)
-                before = text[:idx]
-                self._is_in_thinking = True
-                after = text[idx + len(think_start) :]
-
-                if before:
-                    chunk = self._build_chunk(before, None, PlChunkDataType.CONTENT)
-                    self.unprocessed_text = after
-                    return chunk
-
-                if after:
-                    if think_end in after:
-                        end_idx = after.find(think_end)
-                        thinking_content = after[:end_idx]
-                        self._is_in_thinking = False
-                        self.unprocessed_text = after[end_idx + len(think_end) :]
-                        if thinking_content:
-                            return self._build_chunk(
-                                thinking_content, None, PlChunkDataType.REASONING
-                            )
-                    else:
-                        self.unprocessed_text = after
-                        if after:
-                            return self._build_chunk(
-                                after, None, PlChunkDataType.REASONING
-                            )
-                return None
-
-            self.unprocessed_text = text
-            return None
-
-        else:
-            if think_end in text:
-                idx = text.find(think_end)
-                thinking_content = text[:idx]
-                self._is_in_thinking = False
-                self.unprocessed_text = text[idx + len(think_end) :]
-
-                if thinking_content:
-                    return self._build_chunk(
-                        thinking_content, None, PlChunkDataType.REASONING
+        if not self.is_in_thinking:
+            # Begin of tool call
+            if (
+                tokens.tool_call_start_token
+                and tokens.tool_call_start_token in step_text_to_process
+            ):
+                if not step_text_to_process.startswith(tokens.tool_call_start_token):
+                    pos_tool_call = step_text_to_process.find(
+                        tokens.tool_call_start_token
                     )
-                return None
-            else:
-                return self._build_chunk(text, None, PlChunkDataType.REASONING)
-
-    def _handle_tool_call(
-        self, text: str, tokens: "SpecialTokens"
-    ) -> Optional[PlChunk]:
-        """Handle tool call mode. Returns content chunk if any, None if in tool call."""
-        tc_start = tokens.tool_call_start_token
-        tc_end = tokens.tool_call_end_token
-
-        if not tc_start:
-            return None
-
-        if not self._in_tool_call:
-            if tc_start in text:
-                idx = text.find(tc_start)
-                before = text[:idx]
-                self._in_tool_call = True
-                after = text[idx + len(tc_start) :]
-
-                self._toolcall_buffer = [tc_start]
-
-                if before:
-                    self.unprocessed_text = after
-                    return self._build_chunk(before, None, PlChunkDataType.CONTENT)
-
-                if after:
-                    if tc_end and tc_end in after:
-                        end_idx = after.find(tc_end)
-                        self._toolcall_buffer.append(after[:end_idx])
-                        self._toolcall_buffer.append(tc_end)
-                        self._in_tool_call = False
-                        self._stop_reason = "tool_calls"
-                        self.stop()
-                    else:
-                        self._toolcall_buffer.append(after)
+                    self.unprocessed_text = step_text_to_process[pos_tool_call:]
+                    step_text_to_process = step_text_to_process[:pos_tool_call]
+                else:
+                    self.toolcall_buffer.append(tokens.tool_call_start_token)
+                    step_text_to_process = step_text_to_process[
+                        step_text_to_process.find(tokens.tool_call_start_token)
+                        + len(tokens.tool_call_start_token) :
+                    ]
+                    if step_text_to_process == "":
+                        return None
+            # If already in tool call mode
+            if len(self.toolcall_buffer) > 0:
+                # End of tool call, all generation should stop
+                append_end_tool_call = False
+                if (
+                    tokens.tool_call_end_token
+                    and tokens.tool_call_end_token in step_text_to_process
+                ):
+                    pos_end = step_text_to_process.find(tokens.tool_call_end_token)
+                    step_text_to_process = step_text_to_process[:pos_end]
+                    append_end_tool_call = True
+                if step_text_to_process != "":
+                    self.toolcall_buffer.append(step_text_to_process)
+                if append_end_tool_call:
+                    self.toolcall_buffer.append(tokens.tool_call_end_token)
+                    self.stop()
                 return None
 
-            return None
-
-        else:
-            if tc_end and tc_end in text:
-                idx = text.find(tc_end)
-                self._toolcall_buffer.append(text[:idx])
-                self._toolcall_buffer.append(tc_end)
-                self._in_tool_call = False
-                self._stop_reason = "tool_calls"
-                self.stop()
-            else:
-                self._toolcall_buffer.append(text)
-            return None
-
-    def _build_chunk(self, text: str, gr: Any, data_type: PlChunkDataType) -> PlChunk:
-        """Build a chunk with step usage info."""
         sr = PlStepUsage()
-        if gr is not None:
-            sr.prompt_tokens = gr.prompt_tokens
-            sr.completion_tokens = gr.generation_tokens
-            sr.total_tokens = sr.prompt_tokens + sr.completion_tokens
-            sr.prompt_tps = gr.prompt_tps
-            sr.generation_tps = gr.generation_tps
-
+        sr.prompt_tokens = gr.prompt_tokens if gr is not None else 0
+        sr.completion_tokens = gr.generation_tokens if gr is not None else 0
+        sr.total_tokens = sr.prompt_tokens + sr.completion_tokens
+        sr.prompt_tps = gr.prompt_tps if gr is not None else 0
+        sr.generation_tps = gr.generation_tps if gr is not None else 0
         if sr.generation_tps is None:
-            if self.total_tokens == 1:
-                sr.generation_tps = 1.0
-            elif self._first_token_time:
-                sr.generation_tps = self.total_tokens / (
-                    time.time() - self._first_token_time
-                )
+            sr.generation_tps = self.total_tokens / (
+                time.time() - self.first_token_time
+            )
 
         chunk = PlChunk(step=sr)
-        chunk.data = text
-        chunk.data_type = data_type
+        chunk.data = step_text_to_process
+        chunk.data_type = (
+            PlChunkDataType.REASONING
+            if self.is_in_thinking
+            else PlChunkDataType.CONTENT
+        )
         return chunk
 
     def tool_calls(self) -> List[PlChunk]:
-        """Return tool calls if any."""
+        """Return tool calls from regular content mode (after thinking ends)"""
         result = []
-        if len(self._toolcall_buffer) > 0:
-            content = (
-                self._toolcall_buffer[1:-1] if len(self._toolcall_buffer) > 2 else []
-            )
-            tool_call_chunk = PlCommonToolcallParser(content)
+        if len(self.toolcall_buffer) > 0:
+            tool_call_chunk = PlCommonToolcallParser(self.toolcall_buffer[1:-1])
             if tool_call_chunk is not None:
                 result.append(tool_call_chunk)
-                self._stop_reason = "tool_calls"
+                self.stop_reason = "tool_calls"
             else:
-                logger.warning(
-                    "[ThinkingStepProcessor] Failed to parse tool call from buffer"
-                )
+                logger.warning("[StepProcessor] Failed to parse tool call from buffer")
+
         return result
 
     def finish(self) -> PlChunk:
         """Return finish chunk."""
-        logger.debug(f"full content: {self._full_content}")
-        return PlChunk(finish_reason=self._stop_reason)
+        finish_chunk = PlChunk(finish_reason=self.stop_reason)
+        return finish_chunk
