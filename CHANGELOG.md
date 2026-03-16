@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2025-03-16
+
+### Added
+- Auto-detect special tokens from tokenizer's `added_tokens_decoder`
+- `SpecialTokens` dataclass for storing detected tokens
+- `detect_special_tokens()` function for automatic token detection
+- `PlGptOssStepProcessor` for GPT-OSS models with channel-based mechanism
+
+### Changed
+- `PlStepProcessor` base class now accepts `special_tokens` parameter
+- `PlBaseStepProcessor` refactored to support dynamic think/tool_call tokens
+- `PlMlxModel` and `PlMlxVlmModel` now auto-detect and pass special tokens to StepProcessor
+
+### Fixed
+- Remove hardcoded special tokens in model loaders
+- Support for Qwen3 thinking mode with auto-detected tokens
+
 ## [1.3.3] - 2025-03-16
 
 ### Changed
