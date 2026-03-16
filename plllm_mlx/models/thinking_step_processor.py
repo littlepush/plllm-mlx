@@ -38,6 +38,7 @@ class PlThinkingStepProcessor(PlStepProcessor):
     def __init__(self, special_tokens: Optional["SpecialTokens"] = None):
         super().__init__(special_tokens)
         self.is_in_thinking = False
+        self.thinking_ended = False  # Track if thinking phase has ended
         self.toolcall_buffer = []
         self.first_token_time = None
         self.stop_reason = ""
@@ -79,7 +80,7 @@ class PlThinkingStepProcessor(PlStepProcessor):
 
         tokens = self.special_tokens
 
-        if not self.is_in_thinking:
+        if not self.is_in_thinking and not self.thinking_ended:
             # Check for begin token to detect start of thinking
             has_begin_token = any(
                 bt in step_text_to_process for bt in tokens.begin_tokens if bt
@@ -96,7 +97,7 @@ class PlThinkingStepProcessor(PlStepProcessor):
                         + len(tokens.think_start_token) :
                     ]
                 else:
-                    # Not enough tokens
+                    # Not enough tokens, wait for more
                     self.unprocessed_text = step_text_to_process
                     return None
 
@@ -117,6 +118,7 @@ class PlThinkingStepProcessor(PlStepProcessor):
                     step_text_to_process = text_before_end_think
                 else:
                     self.is_in_thinking = False
+                    self.thinking_ended = True
                     step_text_to_process = step_text_to_process[
                         step_text_to_process.find(tokens.think_end_token)
                         + len(tokens.think_end_token) :

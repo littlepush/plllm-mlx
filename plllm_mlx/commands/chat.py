@@ -321,6 +321,12 @@ def chat(
         None, "--system", "-s", help="System prompt file"
     ),
     max_tokens: int = typer.Option(4096, "--max-tokens", help="Max generation tokens"),
+    chat_file: Optional[Path] = typer.Option(
+        None,
+        "--chat-file",
+        "-f",
+        help="File with prompts (one per line, auto-exit after last)",
+    ),
 ):
     """
     Interactive chat with a loaded model.
@@ -378,6 +384,35 @@ def chat(
 
     if prompt:
         _run_chat_round(chat_client, prompt)
+        return
+
+    if chat_file:
+        if not chat_file.exists():
+            console.print(f"[red]Error: Chat file not found: {chat_file}[/red]")
+            raise typer.Exit(1)
+        try:
+            prompts = [
+                line.strip()
+                for line in chat_file.read_text().splitlines()
+                if line.strip()
+            ]
+        except Exception as e:
+            console.print(f"[red]Error reading chat file: {e}[/red]")
+            raise typer.Exit(1)
+
+        if not prompts:
+            console.print("[red]Error: Chat file is empty[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"[bold green]Chatting with {model}[/bold green]")
+        console.print(f"[dim]Processing {len(prompts)} prompts from {chat_file}[/dim]")
+        console.print()
+
+        for i, user_input in enumerate(prompts, 1):
+            console.print(f"[bold cyan][Round {i}/{len(prompts)}][/bold cyan]")
+            _run_chat_round(chat_client, user_input)
+            if i < len(prompts):
+                console.print()
         return
 
     console.print(f"[bold green]Chatting with {model}[/bold green]")
