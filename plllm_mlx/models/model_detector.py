@@ -79,9 +79,9 @@ class PlModelDetector:
             model_type = config_data.get("model_type", "").lower()
             if "qwen3" in model_type:
                 result["is_qwen3"] = True
-                result["step_processor"] = "qwen3think"
+                result["step_processor"] = "thinking"
                 logger.info(
-                    f"[ModelDetector] Detected Qwen3 from local config, using step_processor: qwen3think"
+                    f"[ModelDetector] Detected Qwen3 from local config, using step_processor: thinking"
                 )
 
             max_pos_emb = config_data.get("max_position_embeddings")
@@ -164,9 +164,9 @@ class PlModelDetector:
             # 2. Detect if Qwen3
             if "qwen3" in config.model_type.lower():
                 result["is_qwen3"] = True
-                result["step_processor"] = "qwen3think"
+                result["step_processor"] = "thinking"
                 logger.info(
-                    f"[ModelDetector] Detected Qwen3 model, using step_processor: qwen3think"
+                    f"[ModelDetector] Detected Qwen3 model, using step_processor: thinking"
                 )
 
             # 3. Detect thinking mode

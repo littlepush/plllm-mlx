@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2025-03-16
+
+### Added
+- `thinking` step processor for models with thinking mode (Qwen3, etc.)
+- Interactive chat command (`plllm-mlx chat`) for conversations with loaded models
+
+### Changed
+- Refactor `base` step processor: filter begin/end tokens, output all as CONTENT
+- `thinking` step processor handles begin/end tokens + think tags + tool calls
+- Model detector: Qwen3 uses `thinking` processor instead of `qwen3think`
+- Fix package build: include `plllm_mlx.commands` module
+
+### Fixed
+- Filter out special tokens (`<|im_start|>`, `<|im_end|>`) in output
+
 ## [1.4.0] - 2025-03-16
 
 ### Added

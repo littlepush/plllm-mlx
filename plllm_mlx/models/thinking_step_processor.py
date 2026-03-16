@@ -1,10 +1,10 @@
 """
-Base step processor with dynamic special token support.
+Thinking step processor with dynamic special token support.
 
 This processor handles:
 - Message boundary tokens (begin_tokens, end_tokens) - filtered out
+- Thinking/reasoning mode (detects think_start_token and think_end_token)
 - Tool calls (if special_tokens.has_tool_call())
-- All content output as CONTENT type (no thinking mode)
 """
 
 from plllm_mlx.logging_config import get_logger
@@ -25,18 +25,19 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class PlBaseStepProcessor(PlStepProcessor):
+class PlThinkingStepProcessor(PlStepProcessor):
     """
-    Base step processor with dynamic special token support.
+    Thinking step processor with dynamic special token support.
 
     Handles:
     - Message boundary tokens (begin_tokens, end_tokens) - filtered out
+    - Thinking/reasoning mode (detects think_start_token and think_end_token)
     - Tool call processing (when special_tokens.has_tool_call() is True)
-    - All content output as CONTENT type
     """
 
     def __init__(self, special_tokens: Optional["SpecialTokens"] = None):
         super().__init__(special_tokens)
+        self._is_in_thinking = False
         self._toolcall_buffer: List[str] = []
         self._first_token_time: Optional[float] = None
         self._stop_reason: str = ""
@@ -46,7 +47,7 @@ class PlBaseStepProcessor(PlStepProcessor):
 
     @staticmethod
     def step_clz_name() -> str:
-        return "base"
+        return "thinking"
 
     def step(self, generate_response: Optional[Any] = None) -> Optional[PlChunk]:
         gr = generate_response
@@ -72,11 +73,21 @@ class PlBaseStepProcessor(PlStepProcessor):
         tokens = self.special_tokens
 
         # Step 1: Filter out begin_tokens and end_tokens
-        step_text = self._filter_special_tokens(step_text, tokens)
+        step_text = self._filter_boundary_tokens(step_text, tokens)
         if not step_text:
             return None
 
-        # Step 2: Handle tool call mode
+        # Step 2: Handle thinking mode
+        if tokens.has_thinking():
+            result = self._handle_thinking(step_text, tokens)
+            if result is not None:
+                return result
+            step_text = self.unprocessed_text
+            self.unprocessed_text = ""
+            if not step_text:
+                return None
+
+        # Step 3: Handle tool call mode
         if tokens.has_tool_call():
             result = self._handle_tool_call(step_text, tokens)
             if result is not None:
@@ -84,13 +95,18 @@ class PlBaseStepProcessor(PlStepProcessor):
             if self._in_tool_call:
                 return None
 
-        # Step 3: Output regular content
+        # Step 4: Output content
         if step_text:
-            return self._build_chunk(step_text, gr, PlChunkDataType.CONTENT)
+            data_type = (
+                PlChunkDataType.REASONING
+                if self._is_in_thinking
+                else PlChunkDataType.CONTENT
+            )
+            return self._build_chunk(step_text, gr, data_type)
 
         return None
 
-    def _filter_special_tokens(self, text: str, tokens: "SpecialTokens") -> str:
+    def _filter_boundary_tokens(self, text: str, tokens: "SpecialTokens") -> str:
         """Filter out begin_tokens and end_tokens from text."""
         result = text
 
@@ -103,6 +119,62 @@ class PlBaseStepProcessor(PlStepProcessor):
                 result = result.replace(et, "")
 
         return result
+
+    def _handle_thinking(self, text: str, tokens: "SpecialTokens") -> Optional[PlChunk]:
+        """Handle thinking mode transitions. Returns chunk if ready, None if buffering."""
+        think_start = tokens.think_start_token
+        think_end = tokens.think_end_token
+
+        if not think_start or not think_end:
+            return None
+
+        if not self._is_in_thinking:
+            if think_start in text:
+                idx = text.find(think_start)
+                before = text[:idx]
+                self._is_in_thinking = True
+                after = text[idx + len(think_start) :]
+
+                if before:
+                    chunk = self._build_chunk(before, None, PlChunkDataType.CONTENT)
+                    self.unprocessed_text = after
+                    return chunk
+
+                if after:
+                    if think_end in after:
+                        end_idx = after.find(think_end)
+                        thinking_content = after[:end_idx]
+                        self._is_in_thinking = False
+                        self.unprocessed_text = after[end_idx + len(think_end) :]
+                        if thinking_content:
+                            return self._build_chunk(
+                                thinking_content, None, PlChunkDataType.REASONING
+                            )
+                    else:
+                        self.unprocessed_text = after
+                        if after:
+                            return self._build_chunk(
+                                after, None, PlChunkDataType.REASONING
+                            )
+                return None
+
+            self.unprocessed_text = text
+            return None
+
+        else:
+            if think_end in text:
+                idx = text.find(think_end)
+                thinking_content = text[:idx]
+                self._is_in_thinking = False
+                self.unprocessed_text = text[idx + len(think_end) :]
+
+                if thinking_content:
+                    return self._build_chunk(
+                        thinking_content, None, PlChunkDataType.REASONING
+                    )
+                return None
+            else:
+                return self._build_chunk(text, None, PlChunkDataType.REASONING)
 
     def _handle_tool_call(
         self, text: str, tokens: "SpecialTokens"
@@ -189,7 +261,7 @@ class PlBaseStepProcessor(PlStepProcessor):
                 self._stop_reason = "tool_calls"
             else:
                 logger.warning(
-                    "[BaseStepProcessor] Failed to parse tool call from buffer"
+                    "[ThinkingStepProcessor] Failed to parse tool call from buffer"
                 )
         return result
 
