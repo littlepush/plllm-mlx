@@ -7,7 +7,7 @@ content, and tool call chunks.
 """
 
 from enum import Enum
-from typing import Optional, Union, Any
+from typing import Optional, Union
 from pydantic import BaseModel
 
 from .step_info import PlStepUsage

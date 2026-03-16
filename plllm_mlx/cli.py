@@ -26,7 +26,7 @@ from plllm_mlx.daemon import (
     stop_service,
 )
 from plllm_mlx.logging_config import setup_logging
-from plllm_mlx.utils import format_config, format_number, parse_value, print_table
+from plllm_mlx.utils import format_config, format_number, parse_value
 
 app = typer.Typer(
     name="plllm-mlx",
@@ -61,7 +61,7 @@ def serve(
         console.print(f"  Config: {config}")
         console.print(f"  Log: {LOG_FILE}")
         console.print(f"\nTo view logs: [bold]tail -f {LOG_FILE}[/bold]")
-        console.print(f"To stop: [bold]plllm-mlx stop[/bold]")
+        console.print("To stop: [bold]plllm-mlx stop[/bold]")
     else:
         console.print("[red]✗ Failed to start service[/red]")
         sys.exit(1)
@@ -105,7 +105,7 @@ def restart():
     success = start_service(DEFAULT_CONFIG, 8000, "info")
 
     if success:
-        console.print(f"[green]✓[/green] Service started on port 8000")
+        console.print("[green]✓[/green] Service started on port 8000")
         console.print(f"  Config: {DEFAULT_CONFIG}")
         console.print(f"  Log: {LOG_FILE}")
     else:
@@ -366,7 +366,7 @@ def download(
     try:
         result = client.download_model(model_id, loader=loader, step_processor=stpp)
         task_id = result.get("task_id")
-        console.print(f"[green]✓[/green] Download started")
+        console.print("[green]✓[/green] Download started")
         console.print(f"  Task ID: {task_id}")
         console.print(
             f"  Check status: [bold]plllm-mlx download-status {task_id}[/bold]"
@@ -386,7 +386,7 @@ def download_status(task_id: str = typer.Argument(..., help="Download task ID"))
 
     try:
         status = client.get_download_status(task_id)
-        console.print(f"[bold]Download Status:[/bold]")
+        console.print("[bold]Download Status:[/bold]")
         console.print(f"  Task ID: {status.get('task_id')}")
         console.print(f"  Model: {status.get('model_id')}")
         console.print(f"  Status: {status.get('status')}")
@@ -463,7 +463,7 @@ def config(
             console.print(f"[red]✗ Failed to set {key}: {e}[/red]")
             sys.exit(1)
 
-    console.print(f"[green]✓[/green] Configuration updated")
+    console.print("[green]✓[/green] Configuration updated")
 
 
 # ==================== Status Command ====================

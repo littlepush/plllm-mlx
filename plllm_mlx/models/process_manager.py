@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 from plllm_mlx.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from .base_step_processor import PlStepProcessor
+    pass
 
 logger = get_logger(__name__)
 

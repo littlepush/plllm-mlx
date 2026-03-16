@@ -73,7 +73,7 @@ class PlModelDetector:
                 result["is_vlm"] = True
                 result["loader"] = "mlxvlm"
                 logger.info(
-                    f"[ModelDetector] Detected VLM from local config, using loader: mlxvlm"
+                    "[ModelDetector] Detected VLM from local config, using loader: mlxvlm"
                 )
 
             model_type = config_data.get("model_type", "").lower()
@@ -81,12 +81,12 @@ class PlModelDetector:
                 result["is_qwen3"] = True
                 result["step_processor"] = "thinking"
                 logger.info(
-                    f"[ModelDetector] Detected Qwen3 from local config, using step_processor: thinking"
+                    "[ModelDetector] Detected Qwen3 from local config, using step_processor: thinking"
                 )
             elif "gpt_oss" in model_type:
                 result["step_processor"] = "gpt_oss"
                 logger.info(
-                    f"[ModelDetector] Detected GPT-OSS from local config, using step_processor: gpt_oss"
+                    "[ModelDetector] Detected GPT-OSS from local config, using step_processor: gpt_oss"
                 )
 
             max_pos_emb = config_data.get("max_position_embeddings")
@@ -164,25 +164,25 @@ class PlModelDetector:
             if hasattr(config, "vision_config"):
                 result["is_vlm"] = True
                 result["loader"] = "mlxvlm"
-                logger.info(f"[ModelDetector] Detected VLM model, using loader: mlxvlm")
+                logger.info("[ModelDetector] Detected VLM model, using loader: mlxvlm")
 
             # 2. Detect if Qwen3
             if "qwen3" in config.model_type.lower():
                 result["is_qwen3"] = True
                 result["step_processor"] = "thinking"
                 logger.info(
-                    f"[ModelDetector] Detected Qwen3 model, using step_processor: thinking"
+                    "[ModelDetector] Detected Qwen3 model, using step_processor: thinking"
                 )
             elif "gpt_oss" in config.model_type.lower():
                 result["step_processor"] = "gpt_oss"
                 logger.info(
-                    f"[ModelDetector] Detected GPT-OSS model, using step_processor: gpt_oss"
+                    "[ModelDetector] Detected GPT-OSS model, using step_processor: gpt_oss"
                 )
 
             # 3. Detect thinking mode
             if tokenizer.chat_template and "think" in tokenizer.chat_template.lower():
                 result["thinking_mode"] = True
-                logger.info(f"[ModelDetector] Detected thinking mode support")
+                logger.info("[ModelDetector] Detected thinking mode support")
 
             # 4. Get configuration parameters
             max_pos_emb = getattr(config, "max_position_embeddings", None)

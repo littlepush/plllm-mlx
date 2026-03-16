@@ -2,9 +2,9 @@
 GPT-OSS step processor with dynamic special token support.
 
 GPT-OSS models use a unique channel-based mechanism:
-- [LT]|start|[GT] begins a message, followed by role
-- [LT]|channel|[GT] starts channel name
-- [LT]|end|[GT] ends the current channel
+- begin_token (e.g., <|start|>) begins a message, followed by role
+- channel_token (e.g., <|channel|>) starts channel name
+- end_token (e.g., <|end|>, <|return|>) ends the current channel
 - "analysis" channel: thinking/reasoning content
 - "final" channel: regular content
 - "commentary to=xxx" channel: tool call
@@ -31,7 +31,11 @@ class PlGptOssStepProcessor(PlStepProcessor):
     """
     GPT-OSS step processor with dynamic special token support.
 
-    Handles the channel-based output format used by GPT-OSS models.
+    Uses special_tokens for:
+    - begin_tokens: Message start tokens (e.g., <|start|>)
+    - end_tokens: Message end tokens (e.g., <|end|>, <|return|>)
+    - channel_token: Channel switching token (e.g., <|channel|>)
+    - message_token: Message key token (e.g., <|message|>)
     """
 
     def __init__(self, special_tokens: Optional["SpecialTokens"] = None):
@@ -45,27 +49,6 @@ class PlGptOssStepProcessor(PlStepProcessor):
         self._is_stop_by_length: bool = False
         self._full_content: str = ""
         self._stop_reason: str = ""
-
-        self._start_token: Optional[str] = None
-        self._end_token: Optional[str] = None
-        self._channel_token: Optional[str] = None
-        self._init_tokens()
-
-    def _init_tokens(self) -> None:
-        """Initialize tokens from special_tokens."""
-        tokens = self.special_tokens
-
-        for t in tokens.begin_tokens:
-            if "|start|" in t:
-                self._start_token = t
-                break
-
-        for t in tokens.end_tokens:
-            if "|end|" in t or "|return|" in t:
-                self._end_token = t
-                break
-
-        self._channel_token = "[LT]|channel|[GT]"
 
     @staticmethod
     def step_clz_name() -> str:
@@ -84,36 +67,43 @@ class PlGptOssStepProcessor(PlStepProcessor):
                 return None
 
             text = gr.text
+            tokens = self.special_tokens
 
-            if self._end_token and text == self._end_token:
-                if self._current_channel_name == "final":
-                    self.stop()
+            # Check end tokens
+            for end_token in tokens.end_tokens:
+                if text == end_token:
+                    if self._current_channel_name == "final":
+                        self.stop()
+                        return None
+                    self._current_channel_name = None
+                    self._current_key_in_channel = None
                     return None
-                self._current_channel_name = None
-                self._current_key_in_channel = None
-                return None
 
-            if self._start_token and text == self._start_token:
-                self._is_waiting_for_role = True
-                return None
+            # Check begin tokens
+            for begin_token in tokens.begin_tokens:
+                if text == begin_token:
+                    self._is_waiting_for_role = True
+                    return None
 
-            if self._is_waiting_for_role and not text.startswith("[LT]|"):
+            # Wait for role after begin token
+            if self._is_waiting_for_role and not text.startswith("<|"):
                 self._current_role = text
                 self._is_waiting_for_role = False
                 return None
 
-            if text == self._channel_token:
+            # Check channel token
+            channel_token = tokens.channel_token
+            if channel_token and text == channel_token:
                 self._is_waiting_for_channel_name = True
                 self._current_channel_name = ""
                 return None
 
+            # Wait for channel name
             if self._is_waiting_for_channel_name:
-                if text.startswith("[LT]|") and text.endswith("|[GT]"):
+                if text.startswith("<|") and text.endswith("|>"):
                     self._is_waiting_for_channel_name = False
                     self._current_channel_name = self._current_channel_name.strip()
-                    self._current_key_in_channel = re.sub(
-                        r"[LT]\|([^|]+)\|[GT]", r"\1", text
-                    )
+                    self._current_key_in_channel = re.sub(r"<\|([^|]+)\|>", r"\1", text)
                     self._channel_buffer[self._current_channel_name] = {
                         "role": self._current_role,
                         "channel": self._current_channel_name,
@@ -123,16 +113,16 @@ class PlGptOssStepProcessor(PlStepProcessor):
                     self._current_channel_name += text
                 return None
 
+            # Handle other special tokens
             strip_token = text.strip()
-            if strip_token.startswith("[LT]|") and strip_token.endswith("|[GT]"):
-                self._current_key_in_channel = re.sub(
-                    r"[LT]\|([^|]+)\|[GT]", r"\1", text
-                )
+            if strip_token.startswith("<|") and strip_token.endswith("|>"):
+                self._current_key_in_channel = re.sub(r"<\|([^|]+)\|>", r"\1", text)
                 if self._current_channel_name in self._channel_buffer:
                     self._channel_buffer[self._current_channel_name][
                         self._current_key_in_channel
                     ] = ""
 
+            # Prepare response chunk
             sr = PlStepUsage()
             sr.prompt_tokens = getattr(gr, "prompt_tokens", 0)
             sr.completion_tokens = getattr(gr, "generation_tokens", 0)
@@ -141,34 +131,30 @@ class PlGptOssStepProcessor(PlStepProcessor):
             sr.generation_tps = getattr(gr, "generation_tps", 0)
             chunk = PlChunk(step=sr)
 
+            # Handle analysis channel (reasoning)
             if self._current_channel_name == "analysis":
                 if self._current_key_in_channel == "message":
                     chunk.data = text
                     chunk.data_type = PlChunkDataType.REASONING
                     return chunk
-                else:
-                    logger.debug(
-                        f"Token in analysis channel but not in message key: {self._current_channel_name}.{self._current_key_in_channel}"
-                    )
                 return None
 
+            # Handle final channel (content)
             if self._current_channel_name == "final":
                 if self._current_key_in_channel == "message":
                     chunk.data = text
                     chunk.data_type = PlChunkDataType.CONTENT
                     return chunk
-                else:
-                    logger.debug(
-                        f"Token in final channel but not in message key: {self._current_channel_name}.{self._current_key_in_channel}"
-                    )
                 return None
 
+            # No channel or key
             if (
                 self._current_channel_name is None
                 or self._current_key_in_channel is None
             ):
                 return None
 
+            # Buffer other content
             self._channel_buffer[self._current_channel_name][
                 self._current_key_in_channel
             ] += text
@@ -177,7 +163,7 @@ class PlGptOssStepProcessor(PlStepProcessor):
         except Exception as e:
             logger.debug(f"Step error: {str(e)}")
             logger.debug(f"full content: {self._full_content}")
-            logger.debug(f"new token: {text if 'text' in dir() else 'N/A'}")
+            logger.debug(f"new token: {gr.text if gr else 'N/A'}")
             self.stop()
             return None
 
@@ -187,7 +173,6 @@ class PlGptOssStepProcessor(PlStepProcessor):
         logger.debug(
             f"channel_buffer: {json.dumps(self._channel_buffer, ensure_ascii=False)}"
         )
-
         result = []
         for channel, data in self._channel_buffer.items():
             if channel.startswith("commentary to="):
@@ -196,10 +181,9 @@ class PlGptOssStepProcessor(PlStepProcessor):
                     "parameters": data.get("message", ""),
                 }
                 chunk = PlChunk(data=tool_call, data_type=PlChunkDataType.TOOLCALL)
-                logger.debug(f"Detected tool call: {tool_call}")
+                logger.debug(f"get to tool call: {tool_call}")
                 result.append(chunk)
                 self._stop_reason = "tool_calls"
-
         return result
 
     def finish(self) -> PlChunk:

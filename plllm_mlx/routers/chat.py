@@ -12,7 +12,6 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
 
 from plllm_mlx.logging_config import get_logger
 from plllm_mlx.models.local_models import get_local_model_manager

@@ -27,12 +27,14 @@ class SpecialTokens:
     Attributes:
         begin_tokens: Tokens that mark the start of a message (e.g., '<|im_start|>')
         end_tokens: Tokens that mark the end of a message (e.g., '<|im_end|>')
-        think_start_token: Token that starts thinking/reasoning block (e.g., '<think>')
-        think_end_token: Token that ends thinking/reasoning block (e.g., '</think>')
+        think_start_token: Token that starts thinking/reasoning block (e.g., '思索开始')
+        think_end_token: Token that ends thinking/reasoning block (e.g., '思索结束')
         tool_call_start_token: Token that starts a tool call block
         tool_call_end_token: Token that ends a tool call block
         vision_start_token: Token that marks vision content start (for VLM)
         vision_end_token: Token that marks vision content end (for VLM)
+        channel_token: Token for channel switching (GPT-OSS specific, e.g., '<|channel|>')
+        message_token: Token for message key (GPT-OSS specific, e.g., '<|message|>')
     """
 
     begin_tokens: List[str] = field(default_factory=list)
@@ -43,6 +45,8 @@ class SpecialTokens:
     tool_call_end_token: Optional[str] = None
     vision_start_token: Optional[str] = None
     vision_end_token: Optional[str] = None
+    channel_token: Optional[str] = None
+    message_token: Optional[str] = None
 
     def has_thinking(self) -> bool:
         """Check if model supports thinking/reasoning mode."""
@@ -110,6 +114,8 @@ def detect_special_tokens(tokenizer: Any) -> SpecialTokens:
         _detect_think_token(tokens, content)
         _detect_tool_call_token(tokens, content)
         _detect_vision_token(tokens, content)
+        _detect_channel_token(tokens, content)
+        _detect_message_token(tokens, content)
 
     if not tokens.begin_tokens:
         tokens.begin_tokens = _DEFAULT_BEGIN_TOKENS.copy()
@@ -181,6 +187,22 @@ def _detect_vision_token(tokens: SpecialTokens, content: str) -> None:
         tokens.vision_end_token = content
 
 
+def _detect_channel_token(tokens: SpecialTokens, content: str) -> None:
+    """Detect channel token for GPT-OSS models."""
+    content_lower = content.lower()
+
+    if content_lower == "|channel|" or content_lower == "<|channel|>":
+        tokens.channel_token = content
+
+
+def _detect_message_token(tokens: SpecialTokens, content: str) -> None:
+    """Detect message token for GPT-OSS models."""
+    content_lower = content.lower()
+
+    if content_lower == "|message|" or content_lower == "<|message|>":
+        tokens.message_token = content
+
+
 def _log_detected_tokens(tokens: SpecialTokens) -> None:
     """Log detected special tokens."""
     parts = [
@@ -198,5 +220,11 @@ def _log_detected_tokens(tokens: SpecialTokens) -> None:
 
     if tokens.vision_start_token:
         parts.append(f"vision={tokens.vision_start_token}/{tokens.vision_end_token}")
+
+    if tokens.channel_token:
+        parts.append(f"channel={tokens.channel_token}")
+
+    if tokens.message_token:
+        parts.append(f"message={tokens.message_token}")
 
     logger.info(f"[SpecialTokens] Detected: {', '.join(parts)}")

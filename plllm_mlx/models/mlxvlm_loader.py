@@ -8,19 +8,19 @@ multimodal inference on Apple Silicon using the MLX framework.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, List, Optional
+from typing import List, Optional
 
 import mlx.core as mx
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
-from mlx_vlm import load, prepare_inputs
+from mlx_vlm import load
 from mlx_vlm.generate import stream_generate as mlx_vlm_stream_generate
 from mlx_vlm.models import cache as mlx_cache
 
-from plllm_mlx.helpers import PlChain, PlChunk, PlChunkDataType
+from plllm_mlx.helpers import PlChain
 from plllm_mlx.logging_config import get_logger
 
 from .base_step_processor import PlStepProcessor
-from .kv_cache import PlKVCacheMessage, PlMessageBasedKVCache
+from .kv_cache import PlMessageBasedKVCache
 from .model_loader import PlModelLoader, async_ticker
 from .special_tokens import SpecialTokens, detect_special_tokens
 

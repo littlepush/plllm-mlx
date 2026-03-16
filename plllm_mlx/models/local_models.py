@@ -13,11 +13,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from plllm_mlx.helpers import get_hf_cache_dir, get_hostname
+from plllm_mlx.helpers import get_hf_cache_dir
 from plllm_mlx.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from .base_step_processor import PlStepProcessor
     from .model_loader import PlModelLoader
 
 logger = get_logger(__name__)

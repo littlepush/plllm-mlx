@@ -8,7 +8,6 @@ LLM models through the plllm-mlx service.
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional
@@ -222,15 +221,25 @@ def _run_chat_round(client: ChatClient, user_input: str) -> bool:
         return True
 
     console.print()
-    console.print("[bold green]Assistant:[/bold green]", end="")
-
     usage = None
+    reasoning_started = False
+    content_started = False
     try:
         for chunk in client.chat_stream(user_input):
             if chunk.content:
                 if chunk.is_reasoning:
+                    if not reasoning_started:
+                        console.print()
+                        console.print("[dim italic][Reasoning]: [/dim italic]", end="")
+                        reasoning_started = True
                     console.print(chunk.content, style="dim", end="")
                 else:
+                    if not content_started:
+                        if reasoning_started:
+                            console.print()
+                        console.print()
+                        console.print("[bold green][Assistant]: [/bold green]", end="")
+                        content_started = True
                     console.print(chunk.content, end="")
             if chunk.usage:
                 usage = chunk.usage
@@ -377,7 +386,7 @@ def chat(
 
     while True:
         try:
-            user_input = Prompt.ask("[bold cyan]You[/bold cyan]")
+            user_input = Prompt.ask("[bold cyan][You]: [/bold cyan]")
             if not _run_chat_round(chat_client, user_input):
                 break
         except KeyboardInterrupt:

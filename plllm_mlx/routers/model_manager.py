@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from plllm_mlx.helpers import get_hf_cache_dir, get_model_cache_path
 from plllm_mlx.logging_config import get_logger
-from plllm_mlx.models.local_models import get_local_model_manager, PlLocalModelInfo
+from plllm_mlx.models.local_models import get_local_model_manager
 
 logger = get_logger(__name__)
 
@@ -60,7 +60,6 @@ def _hf_matches_mlx(model_id: str) -> bool:
     We'll check if there's an 'mlx' or 'apple' folder in the model repo.
     """
     try:
-        from huggingface_hub import hf_hub_download
 
         # Try to download a config file to verify the model exists
         # Check for MLX-specific files

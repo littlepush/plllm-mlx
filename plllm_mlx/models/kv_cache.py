@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from copy import deepcopy
 from typing import Any, List, Optional, Tuple
 
 import psutil
@@ -475,7 +474,7 @@ class PlMessageBasedKVCache:
             logger.debug(f"[KVCache Debug] Searching for chain: {len(msg_ids)} msg_ids")
             cached_chain = self._chain_cache.search_max_chain(msg_ids)
             if cached_chain is None:
-                logger.debug(f"[KVCache Debug] No match found")
+                logger.debug("[KVCache Debug] No match found")
                 return None
             logger.debug(
                 f"[KVCache Debug] Found match: {len(cached_chain.node_ids)} msgs, "
@@ -493,7 +492,7 @@ class PlMessageBasedKVCache:
                     # and current input message is: [..., last user message, last assistant cache, current user message]
                     # the key is two steps below the cached chain, but the cache is only one step below
                     logger.info(
-                        f"[PlMessageBasedKVCache] find last round cache, upgrade"
+                        "[PlMessageBasedKVCache] find last round cache, upgrade"
                     )
                     extend_chain = PlChain(
                         cached_chain.node_ids + [msg_ids[len(cached_chain.node_ids)]]
@@ -543,7 +542,7 @@ class PlMessageBasedKVCache:
             The newly created PlChain, or None if cache is None
         """
         if cache is None:
-            logger.warning(f"[PlMessageBasedKVCache] add_kv_cache: cache is None")
+            logger.warning("[PlMessageBasedKVCache] add_kv_cache: cache is None")
             return None
 
         # Debug: Log cache addition

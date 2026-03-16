@@ -24,5 +24,6 @@ def get_finish_reason(gr: Any) -> Optional[str]:
         return gr.finish_reason
     return None
 
+
 # Alias for backward compatibility
 PlMlxGetFinishReason = get_finish_reason

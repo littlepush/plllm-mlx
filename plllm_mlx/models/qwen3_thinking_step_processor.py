@@ -156,11 +156,11 @@ class Qwen3ThinkingStepProcessor(PlStepProcessor):
         result = []
         if len(self.toolcall_buffer) > 0:
             tool_call_chunk = PlCommonToolcallParser(self.toolcall_buffer[1:-1])
-            if not tool_call_chunk is None:
+            if tool_call_chunk is not None:
                 result.append(tool_call_chunk)
                 self.stop_reason = "tool_calls"
             else:
-                logger.warning(f"[StepProcessor] Failed to parse tool call from buffer")
+                logger.warning("[StepProcessor] Failed to parse tool call from buffer")
 
         return result
 

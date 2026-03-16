@@ -8,9 +8,7 @@ model inference without blocking the main event loop.
 from __future__ import annotations
 
 import asyncio
-import sys
 from multiprocessing import Queue
-from typing import Any
 
 from plllm_mlx.logging_config import get_logger
 
