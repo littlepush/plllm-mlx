@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2025-03-16
+
+### Fixed
+- Correct thinking_step_processor logic based on old qwen3 implementation
+- Use dynamic special_tokens instead of hardcoded tokens
+- Properly detect thinking mode using begin_tokens and think_start_token
+
 ## [1.5.1] - 2025-03-16
 
 ### Fixed
