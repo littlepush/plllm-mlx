@@ -222,24 +222,21 @@ def _run_chat_round(client: ChatClient, user_input: str) -> bool:
 
     console.print()
     usage = None
-    reasoning_parts = []
+    reasoning_started = False
     content_started = False
     try:
         for chunk in client.chat_stream(user_input):
             if chunk.content:
                 if chunk.is_reasoning:
-                    reasoning_parts.append(chunk.content)
+                    if not reasoning_started:
+                        console.print()
+                        console.print("[dim italic][Reasoning]: [/dim italic]", end="")
+                        reasoning_started = True
+                    console.print(chunk.content, style="dim", end="")
                 else:
                     if not content_started:
-                        if reasoning_parts:
-                            reasoning_text = "".join(reasoning_parts).strip()
-                            if reasoning_text:
-                                console.print()
-                                console.print(
-                                    "[dim italic][Reasoning]: [/dim italic]", end=""
-                                )
-                                console.print(reasoning_text, style="dim", end="")
-                                console.print()
+                        if reasoning_started:
+                            console.print()
                         console.print()
                         console.print("[bold green][Assistant]: [/bold green]", end="")
                         content_started = True
