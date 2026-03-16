@@ -14,8 +14,9 @@ from typing import Dict, Iterator, List, Optional
 
 import httpx
 import typer
+from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
-from rich.prompt import Prompt
 
 console = Console()
 
@@ -279,9 +280,8 @@ def _select_model(models: List[Dict]) -> Optional[str]:
 
     while True:
         try:
-            choice = Prompt.ask(
-                "Enter number",
-                default="1",
+            choice = pt_prompt(
+                HTML("<ansicyan>Enter number</ansicyan> [1]: "), default="1"
             )
 
             if choice.lower() == "q":
@@ -386,7 +386,7 @@ def chat(
 
     while True:
         try:
-            user_input = Prompt.ask("[bold cyan][You][/bold cyan]")
+            user_input = pt_prompt(HTML("<ansicyan><b>[You]</b></ansicyan> "))
             if not _run_chat_round(chat_client, user_input):
                 break
         except KeyboardInterrupt:
