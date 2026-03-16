@@ -133,7 +133,27 @@ plllm-mlx unload Qwen2.5-7B-8bit
 plllm-mlx config Qwen2.5-7B-8bit temperature=0.8 max_tokens=2048
 ```
 
-### 3. Use API
+### 3. Chat with Models
+
+```bash
+# Interactive chat (select from loaded models)
+plllm-mlx chat
+
+# Chat with specific model
+plllm-mlx chat -m Qwen2.5-7B-8bit
+
+# Single prompt mode
+plllm-mlx chat -m Qwen2.5-7B-8bit -p "What is AI?"
+
+# With system prompt file
+plllm-mlx chat -m Qwen2.5-7B-8bit -s system.txt
+
+# Chat commands (in interactive mode):
+#   /quit - Exit the chat
+#   /help - Show available commands
+```
+
+### 4. Use API
 
 ```bash
 # Chat completion

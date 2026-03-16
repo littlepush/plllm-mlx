@@ -247,6 +247,13 @@ def search(
     console.print(table)
 
 
+# ==================== Chat Command ====================
+
+from plllm_mlx.commands.chat import chat_app
+
+app.add_typer(chat_app, name="chat")
+
+
 # ==================== Load Command ====================
 
 
@@ -524,6 +531,7 @@ def main():
             "delete",
             "config",
             "status",
+            "chat",
         ]
     ):
         # Default to starting server with config

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-03-16
+
+### Added
+- Interactive chat command (`plllm-mlx chat`) for conversations with loaded models
+- Single prompt mode (`plllm-mlx chat -m model -p "prompt"`)
+- System prompt file support (`--system` flag)
+- Model selection from loaded models when not specified
+- Usage statistics display after each chat round (tokens, first token time, speed)
+- Thinking/reasoning content display with dimmed style
+- Chat commands: `/quit`, `/help`
+- 5-minute timeout for chat requests
+
+### Changed
+- Optimize service status check for faster CLI response (ps: 2s -> 0.2s)
+
 ## [1.3.6] - 2025-03-16
 
 ### Changed
