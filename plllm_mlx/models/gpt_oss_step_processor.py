@@ -69,7 +69,7 @@ class PlGptOssStepProcessor(PlStepProcessor):
 
     @staticmethod
     def step_clz_name() -> str:
-        return "gptoss"
+        return "gpt_oss"
 
     def step(self, generate_response: Any) -> Optional[PlChunk]:
         gr = generate_response

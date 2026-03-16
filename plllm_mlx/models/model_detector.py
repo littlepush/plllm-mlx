@@ -83,6 +83,11 @@ class PlModelDetector:
                 logger.info(
                     f"[ModelDetector] Detected Qwen3 from local config, using step_processor: thinking"
                 )
+            elif "gpt_oss" in model_type:
+                result["step_processor"] = "gpt_oss"
+                logger.info(
+                    f"[ModelDetector] Detected GPT-OSS from local config, using step_processor: gpt_oss"
+                )
 
             max_pos_emb = config_data.get("max_position_embeddings")
             result["config"] = {
@@ -167,6 +172,11 @@ class PlModelDetector:
                 result["step_processor"] = "thinking"
                 logger.info(
                     f"[ModelDetector] Detected Qwen3 model, using step_processor: thinking"
+                )
+            elif "gpt_oss" in config.model_type.lower():
+                result["step_processor"] = "gpt_oss"
+                logger.info(
+                    f"[ModelDetector] Detected GPT-OSS model, using step_processor: gpt_oss"
                 )
 
             # 3. Detect thinking mode
