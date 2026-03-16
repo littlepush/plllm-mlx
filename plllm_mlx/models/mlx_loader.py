@@ -365,7 +365,7 @@ class PlMlxModel(PlModelLoader):
             matched_chain = self._prompt_cache.get_kv_cache(message_splits)
             if matched_chain is None:
                 matched_chain = PlChain([], cache_item=self._build_prompt_cache())
-            gen_prompt = "\n".join(
+            gen_prompt = "".join(
                 [m.full_content for m in message_splits[len(matched_chain.node_ids) :]]
             )
         else:

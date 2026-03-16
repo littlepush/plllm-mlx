@@ -343,12 +343,15 @@ class PlMessageBasedKVCache:
                 messages.append(_parse_message(full_msg))
                 break
 
-            # Extract full message including begin/end tokens
-            full_msg = prompt[begin_idx : end_idx + len(end_token)]
+            # Extract full message including begin/end tokens and trailing newline
+            msg_end = end_idx + len(end_token)
+            if msg_end < len(prompt) and prompt[msg_end] == "\n":
+                msg_end += 1
+            full_msg = prompt[begin_idx:msg_end]
             messages.append(_parse_message(full_msg))
 
             # Move to next message
-            current_pos = end_idx + len(end_token)
+            current_pos = msg_end
 
         # If we couldn't split properly, treat the whole thing as one message
         if not messages:

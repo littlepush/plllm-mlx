@@ -455,7 +455,7 @@ class PlMlxVlmModel(PlModelLoader):
             for m in message_splits[len(matched_chain.node_ids) :]:
                 logger.debug(f"vision count: {m.vision_count}/{m.msg_id}")
                 left_vision_count += m.vision_count
-            gen_prompt = "\n".join(
+            gen_prompt = "".join(
                 [m.full_content for m in message_splits[len(matched_chain.node_ids) :]]
             )
             logger.debug(f"left vision count: {left_vision_count}")
