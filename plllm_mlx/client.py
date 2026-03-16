@@ -145,6 +145,7 @@ class PlClient:
         model_name: str,
         loader: Optional[str] = None,
         step_processor: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Load a model.
@@ -153,6 +154,7 @@ class PlClient:
             model_name: Model name.
             loader: Model loader type (mlx/mlxvlm). If None, auto-detect.
             step_processor: Step processor type (base/qwen3think/openai). If None, auto-detect.
+            timeout: Request timeout in seconds. If None, no timeout (wait for completion).
 
         Returns:
             Response data.
@@ -163,7 +165,10 @@ class PlClient:
         if step_processor is not None:
             payload["step_processor"] = step_processor
 
-        response = self.client.post(f"{self.base_url}/v1/model/load", json=payload)
+        request_timeout = timeout if timeout is not None else 300.0
+        response = self.client.post(
+            f"{self.base_url}/v1/model/load", json=payload, timeout=request_timeout
+        )
         response.raise_for_status()
         return response.json()
 
