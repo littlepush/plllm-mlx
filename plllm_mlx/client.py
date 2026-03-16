@@ -7,11 +7,24 @@ This module provides a client to interact with the plllm-mlx service API.
 from __future__ import annotations
 
 import sys
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from plllm_mlx.daemon import get_service_port, is_service_running
+
+_verbose = False
+
+
+def set_verbose(verbose: bool):
+    global _verbose
+    _verbose = verbose
+
+
+def _log_time(operation: str, elapsed: float):
+    if _verbose:
+        print(f"[TIMING] {operation}: {elapsed * 1000:.1f}ms")
 
 
 class PlClient:
@@ -24,19 +37,28 @@ class PlClient:
         Args:
             url: Service URL. If None, will auto-discover.
         """
+        start = time.time()
         if url is None:
             url = self._discover_service_url()
         self.base_url = url
         self.client = httpx.Client(timeout=30.0)
+        _log_time("PlClient.__init__", time.time() - start)
 
     def _discover_service_url(self) -> str:
         """Auto-discover service URL."""
-        if not is_service_running():
+        start = time.time()
+        running = is_service_running()
+        _log_time("is_service_running()", time.time() - start)
+
+        if not running:
             print("Error: Service not running")
             print("Start with: plllm-mlx serve")
             sys.exit(1)
 
+        start = time.time()
         port = get_service_port()
+        _log_time("get_service_port()", time.time() - start)
+
         if port is None:
             port = 8000
 
@@ -66,7 +88,9 @@ class PlClient:
         Returns:
             List of model information.
         """
+        start = time.time()
         response = self.client.get(f"{self.base_url}/v1/model/list")
+        _log_time("HTTP GET /v1/model/list", time.time() - start)
         response.raise_for_status()
         models = response.json().get("data", [])
 

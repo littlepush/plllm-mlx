@@ -159,6 +159,8 @@ async def _download_model_async(
     Uses huggingface_hub to download files without git-lfs dependency.
     """
     from plllm_mlx.models.model_detector import PlModelDetector
+    from huggingface_hub import snapshot_download, repo_info
+    import threading
 
     try:
         _download_tasks[task_id]["status"] = "downloading"
@@ -178,18 +180,66 @@ async def _download_model_async(
 
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        _download_tasks[task_id]["message"] = f"Downloading {model_id}..."
-
-        from huggingface_hub import snapshot_download
+        _download_tasks[task_id]["message"] = f"Fetching model info for {model_id}..."
 
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            lambda: snapshot_download(
-                repo_id=model_id,
-                local_dir=str(target_dir),
-            ),
-        )
+
+        total_files = 0
+        try:
+            info = await loop.run_in_executor(None, lambda: repo_info(model_id))
+            if hasattr(info, "siblings") and info.siblings:
+                total_files = len(info.siblings)
+                _download_tasks[task_id]["total_files"] = total_files
+        except Exception:
+            pass
+
+        _download_tasks[task_id]["message"] = f"Downloading {model_id}..."
+
+        stop_monitor = threading.Event()
+
+        async def monitor_progress():
+            while not stop_monitor.is_set():
+                await asyncio.sleep(0.5)
+                try:
+                    downloaded_files = 0
+                    downloaded_bytes = 0
+                    for f in target_dir.rglob("*"):
+                        if f.is_file():
+                            downloaded_files += 1
+                            downloaded_bytes += f.stat().st_size
+
+                    _download_tasks[task_id]["downloaded_files"] = downloaded_files
+                    _download_tasks[task_id]["downloaded_bytes"] = downloaded_bytes
+                    _download_tasks[task_id]["downloaded_mb"] = round(
+                        downloaded_bytes / (1024 * 1024), 2
+                    )
+
+                    size_mb = downloaded_bytes / (1024 * 1024)
+                    _download_tasks[task_id]["message"] = (
+                        f"Downloading: {downloaded_files} files, {size_mb:.1f}MB"
+                    )
+                except Exception:
+                    pass
+
+        monitor_task = asyncio.create_task(monitor_progress())
+
+        try:
+            await loop.run_in_executor(
+                None,
+                lambda: snapshot_download(
+                    repo_id=model_id,
+                    local_dir=str(target_dir),
+                    max_workers=4,
+                ),
+            )
+        finally:
+            stop_monitor.set()
+            try:
+                await monitor_task
+            except Exception:
+                pass
+
+        _download_tasks[task_id]["message"] = "Download completed, loading model..."
 
         localModelMgr.reload_local_models()
 
@@ -245,6 +295,10 @@ async def download_model(req: DownloadRequest):
         "status": "pending",
         "message": "Task created",
         "model_name": None,
+        "downloaded_files": 0,
+        "total_files": 0,
+        "current_file": "",
+        "downloaded_bytes": 0,
     }
 
     asyncio.create_task(
@@ -269,15 +323,31 @@ async def get_download_status(task_id: str):
         raise HTTPException(status_code=404, detail="Task not found")
 
     task = _download_tasks[task_id]
-    return JSONResponse(
-        {
-            "task_id": task["task_id"],
-            "model_id": task["model_id"],
-            "status": task["status"],
-            "message": task["message"],
-            "model_name": task.get("model_name"),
+
+    response = {
+        "task_id": task["task_id"],
+        "model_id": task["model_id"],
+        "status": task["status"],
+        "message": task["message"],
+        "model_name": task.get("model_name"),
+    }
+
+    if task["status"] == "downloading":
+        response["progress"] = {
+            "downloaded_files": task.get("downloaded_files", 0),
+            "total_files": task.get("total_files", 0),
+            "downloaded_bytes": task.get("downloaded_bytes", 0),
+            "downloaded_mb": round(task.get("downloaded_bytes", 0) / (1024 * 1024), 2),
+            "current_file": task.get("current_file", ""),
         }
-    )
+        if task.get("total_files", 0) > 0:
+            response["progress"]["percent"] = round(
+                (task.get("downloaded_files", 0) / task.get("total_files", 1)) * 100, 1
+            )
+        else:
+            response["progress"]["percent"] = 0
+
+    return JSONResponse(response)
 
 
 @router.post("/model/delete")
