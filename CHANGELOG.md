@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.6] - 2025-03-16
+
+### Changed
+- Optimize service status check for faster CLI response (ps: 2s -> 0.2s)
+- Add STATUS_FILE for fast port/pid lookup without parsing YAML config
+- Use HTTP request directly instead of socket check in client
+
 ## [1.3.5] - 2025-03-16
 
 ### Fixed
