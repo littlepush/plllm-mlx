@@ -25,6 +25,7 @@ CONFIG_DIR = Path.home() / ".plllm-mlx"
 LOG_DIR = CONFIG_DIR / "logs"
 LOG_FILE = LOG_DIR / "service.log"
 DEFAULT_CONFIG = CONFIG_DIR / "config.yaml"
+STATUS_FILE = CONFIG_DIR / "service.status"  # Fast status file for port/pid
 
 
 def create_directories() -> None:
@@ -111,12 +112,37 @@ def _check_port_open(port: int) -> bool:
 
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
+        sock.settimeout(0.1)
         result = sock.connect_ex(("localhost", port))
         sock.close()
         return result == 0
     except Exception:
         return False
+
+
+def _write_status_file(port: int, pid: int) -> None:
+    """Write service status file for fast lookup."""
+    import json
+
+    STATUS_FILE.write_text(json.dumps({"port": port, "pid": pid}))
+
+
+def _read_status_file() -> Optional[dict]:
+    """Read service status file."""
+    import json
+
+    if not STATUS_FILE.exists():
+        return None
+    try:
+        return json.loads(STATUS_FILE.read_text())
+    except Exception:
+        return None
+
+
+def _remove_status_file() -> None:
+    """Remove service status file."""
+    if STATUS_FILE.exists():
+        STATUS_FILE.unlink()
 
 
 def is_service_running() -> bool:
@@ -129,24 +155,15 @@ def is_service_running() -> bool:
     if not PLIST_PATH.exists():
         return False
 
-    # Fast check: try to connect to the port
-    port = _get_port_from_config()
-    if port and _check_port_open(port):
-        return True
+    # Try status file first (fastest)
+    status = _read_status_file()
+    if status and status.get("port"):
+        if _check_port_open(status["port"]):
+            return True
 
-    # Fallback: check if launchagent is loaded (slower)
-    try:
-        result = subprocess.run(
-            ["launchctl", "list", LABEL],
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        )
-        return result.returncode == 0
-    except subprocess.TimeoutExpired:
-        return False
-    except Exception:
-        return False
+    # Fallback to config
+    port = _get_port_from_config()
+    return _check_port_open(port) if port else False
 
 
 def _get_port_from_config() -> Optional[int]:
@@ -173,6 +190,22 @@ def get_service_port() -> Optional[int]:
     port = _get_port_from_config()
     if port and _check_port_open(port):
         return port
+    return None
+
+
+def get_service_url() -> Optional[str]:
+    """
+    Get the service URL if running.
+
+    Returns:
+        Service URL if running, None otherwise.
+    """
+    if not PLIST_PATH.exists():
+        return None
+
+    port = _get_port_from_config()
+    if port and _check_port_open(port):
+        return f"http://localhost:{port}"
     return None
 
 
@@ -263,6 +296,9 @@ def start_service(
         logger.error("Service failed to start within timeout")
         return False
 
+    # Write status file for fast lookup
+    _write_status_file(port, os.getpid())
+
     logger.info(f"Service started on port {port}")
     return True
 
@@ -292,6 +328,9 @@ def stop_service() -> bool:
         logger.info(f"Removed plist file {PLIST_PATH}")
     except Exception as e:
         logger.warning(f"Failed to remove plist: {e}")
+
+    # Remove status file
+    _remove_status_file()
 
     logger.info("Service stopped")
     return True

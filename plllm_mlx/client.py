@@ -6,13 +6,14 @@ This module provides a client to interact with the plllm-mlx service API.
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-from plllm_mlx.daemon import get_service_port, is_service_running
+from plllm_mlx.daemon import STATUS_FILE
 
 _verbose = False
 
@@ -30,44 +31,69 @@ def _log_time(operation: str, elapsed: float):
 class PlClient:
     """Client for plllm-mlx HTTP API."""
 
-    def __init__(self, url: Optional[str] = None):
+    def __init__(self, url: Optional[str] = None, timeout: float = 5.0):
         """
         Initialize client.
 
         Args:
             url: Service URL. If None, will auto-discover.
+            timeout: HTTP request timeout in seconds.
         """
         start = time.time()
-        if url is None:
-            url = self._discover_service_url()
-        self.base_url = url
-        self.client = httpx.Client(timeout=30.0)
+        self._timeout = timeout
+        self._url = url
+        self._client: Optional[httpx.Client] = None
+        self._base_url: Optional[str] = None
         _log_time("PlClient.__init__", time.time() - start)
 
+    @property
+    def client(self) -> httpx.Client:
+        """Get or create HTTP client."""
+        if self._client is None:
+            self._client = httpx.Client(timeout=self._timeout)
+        return self._client
+
+    @property
+    def base_url(self) -> str:
+        """Get base URL, discovering if needed."""
+        if self._base_url is None:
+            self._base_url = self._discover_service_url()
+        return self._base_url
+
+    def _get_url_from_status(self) -> Optional[str]:
+        """Get URL from status file (fastest)."""
+        if STATUS_FILE.exists():
+            try:
+                status = json.loads(STATUS_FILE.read_text())
+                port = status.get("port", 8000)
+                return f"http://localhost:{port}"
+            except Exception:
+                pass
+        return None
+
     def _discover_service_url(self) -> str:
-        """Auto-discover service URL."""
-        start = time.time()
-        running = is_service_running()
-        _log_time("is_service_running()", time.time() - start)
+        """Auto-discover service URL by trying to connect."""
+        # Fast: read from status file
+        if self._url:
+            return self._url
 
-        if not running:
-            print("Error: Service not running")
-            print("Start with: plllm-mlx serve")
-            sys.exit(1)
+        url = self._get_url_from_status() or "http://localhost:8000"
 
-        start = time.time()
-        port = get_service_port()
-        _log_time("get_service_port()", time.time() - start)
+        try:
+            resp = self.client.get(f"{url}/health", timeout=1.0)
+            if resp.status_code == 200:
+                return url
+        except Exception:
+            pass
 
-        if port is None:
-            port = 8000
-
-        return f"http://localhost:{port}"
+        print("Error: Service not running")
+        print("Start with: plllm-mlx serve")
+        sys.exit(1)
 
     def _check_service(self) -> bool:
         """Check if service is running."""
         try:
-            response = self.client.get(f"{self.base_url}/health", timeout=5.0)
+            response = self.client.get(f"{self.base_url}/health", timeout=1.0)
             return response.status_code == 200
         except Exception:
             return False
@@ -88,9 +114,7 @@ class PlClient:
         Returns:
             List of model information.
         """
-        start = time.time()
         response = self.client.get(f"{self.base_url}/v1/model/list")
-        _log_time("HTTP GET /v1/model/list", time.time() - start)
         response.raise_for_status()
         models = response.json().get("data", [])
 
@@ -242,4 +266,5 @@ class PlClient:
 
     def close(self):
         """Close client."""
-        self.client.close()
+        if self._client:
+            self._client.close()
