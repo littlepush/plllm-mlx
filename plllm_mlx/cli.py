@@ -102,7 +102,15 @@ def restart():
 
     time.sleep(2)
 
-    serve()
+    success = start_service(DEFAULT_CONFIG, 8000, "info")
+
+    if success:
+        console.print(f"[green]✓[/green] Service started on port 8000")
+        console.print(f"  Config: {DEFAULT_CONFIG}")
+        console.print(f"  Log: {LOG_FILE}")
+    else:
+        console.print("[red]✗ Failed to start service[/red]")
+        sys.exit(1)
 
 
 # ==================== Run-Server Command (Internal) ====================
@@ -375,7 +383,27 @@ def download_status(task_id: str = typer.Argument(..., help="Download task ID"))
         console.print(f"  Task ID: {status.get('task_id')}")
         console.print(f"  Model: {status.get('model_id')}")
         console.print(f"  Status: {status.get('status')}")
+
+        progress = status.get("progress")
+        if progress:
+            percent = progress.get("percent", 0)
+            files = f"{progress.get('downloaded_files', 0)}/{progress.get('total_files', 0)}"
+            size_mb = progress.get("downloaded_mb", 0)
+            current = progress.get("current_file", "")
+
+            bar_width = 20
+            filled = int(bar_width * percent / 100)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            console.print(f"  Progress: [{bar}] {percent}%")
+            console.print(f"  Files: {files}")
+            console.print(f"  Downloaded: {size_mb}MB")
+            if current:
+                console.print(f"  Current: {current}")
+
         console.print(f"  Message: {status.get('message')}")
+
+        if status.get("model_name"):
+            console.print(f"  Model Name: {status.get('model_name')}")
     except Exception as e:
         console.print(f"[red]✗ Failed to get status: {e}[/red]")
         sys.exit(1)

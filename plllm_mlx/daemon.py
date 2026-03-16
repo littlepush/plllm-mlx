@@ -105,6 +105,20 @@ def generate_plist(config_path: Path, port: int = 8000, log_level: str = "info")
     return plist_content
 
 
+def _check_port_open(port: int) -> bool:
+    """Check if a port is open (fast method)."""
+    import socket
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        result = sock.connect_ex(("localhost", port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
 def is_service_running() -> bool:
     """
     Check if the LaunchAgent service is running.
@@ -115,25 +129,28 @@ def is_service_running() -> bool:
     if not PLIST_PATH.exists():
         return False
 
-    # Check if launchagent is loaded
-    result = subprocess.run(
-        ["launchctl", "list", LABEL], capture_output=True, text=True
-    )
+    # Fast check: try to connect to the port
+    port = _get_port_from_config()
+    if port and _check_port_open(port):
+        return True
 
-    return result.returncode == 0
+    # Fallback: check if launchagent is loaded (slower)
+    try:
+        result = subprocess.run(
+            ["launchctl", "list", LABEL],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
 
 
-def get_service_port() -> Optional[int]:
-    """
-    Get the port the service is running on.
-
-    Returns:
-        Port number if service is running, None otherwise.
-    """
-    if not is_service_running():
-        return None
-
-    # Try to read from config
+def _get_port_from_config() -> Optional[int]:
+    """Get port from config file without checking service status."""
     if DEFAULT_CONFIG.exists():
         try:
             import yaml
@@ -143,9 +160,20 @@ def get_service_port() -> Optional[int]:
                 return config.get("server", {}).get("port", 8000)
         except Exception:
             pass
-
-    # Default port
     return 8000
+
+
+def get_service_port() -> Optional[int]:
+    """
+    Get the port the service is running on.
+
+    Returns:
+        Port number if service is running, None otherwise.
+    """
+    port = _get_port_from_config()
+    if port and _check_port_open(port):
+        return port
+    return None
 
 
 def wait_for_service(port: int, timeout: int = 30) -> bool:
@@ -275,12 +303,6 @@ def create_default_config(config_path: Path) -> None:
     default_config = {
         "server": {"host": "0.0.0.0", "port": 8000, "log_level": "info"},
         "models": [],
-        "logging": {
-            "level": "info",
-            "file": str(LOG_FILE),
-            "max_size": "100MB",
-            "backup_count": 5,
-        },
     }
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
