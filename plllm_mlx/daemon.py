@@ -176,7 +176,7 @@ def get_service_port() -> Optional[int]:
     return None
 
 
-def wait_for_service(port: int, timeout: int = 30) -> bool:
+def wait_for_service(port: int, timeout: int = 60) -> bool:
     """
     Wait for service to start accepting connections.
 
@@ -188,6 +188,10 @@ def wait_for_service(port: int, timeout: int = 30) -> bool:
         True if service started, False if timeout.
     """
     import socket
+    import os
+
+    # Allow override via environment variable
+    timeout = int(os.environ.get("PLLLM_START_TIMEOUT", timeout))
 
     start_time = time.time()
 
