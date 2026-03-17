@@ -343,15 +343,12 @@ class PlMessageBasedKVCache:
                 messages.append(_parse_message(full_msg))
                 break
 
-            # Extract full message including begin/end tokens and trailing newline
-            msg_end = end_idx + len(end_token)
-            if msg_end < len(prompt) and prompt[msg_end] == "\n":
-                msg_end += 1
-            full_msg = prompt[begin_idx:msg_end]
+            # Extract full message including begin/end tokens
+            full_msg = prompt[begin_idx : end_idx + len(end_token)]
             messages.append(_parse_message(full_msg))
 
             # Move to next message
-            current_pos = msg_end
+            current_pos = end_idx + len(end_token)
 
         # If we couldn't split properly, treat the whole thing as one message
         if not messages:
@@ -484,7 +481,30 @@ class PlMessageBasedKVCache:
                 f"has_cache={cached_chain.cache_item is not None}, "
                 f"has_temp={cached_chain.temp_cache_item is not None}"
             )
-            # if a cached_chain is not None, which means at least one of the cache item is not None
+            # Check full match first (before temp cache handling)
+            if len(cached_chain.node_ids) == len(msg_ids):
+                # Full match scenario
+                if cached_chain.cache_item is not None:
+                    # Has real cache, can use directly
+                    logger.info(
+                        f"[PlMessageBasedKVCache] Cache HIT: full match for {len(msg_ids)} messages"
+                    )
+                    if allow_full_match:
+                        return cached_chain
+                    # full match, maybe the user start a `retry` request in history.
+                    # We need at least one new message to generate new response
+                    # so use the cache for the previous messages and ignore the last one.
+                    return _search(msg_ids[:-1], allow_full_match=True)
+                else:
+                    # Only has temp_cache (retry scenario)
+                    # Need to use shorter chain to regenerate
+                    logger.info(
+                        "[PlMessageBasedKVCache] Full match but only temp_cache, searching shorter chain for retry"
+                    )
+                    return _search(cached_chain.node_ids[:-1], allow_full_match=True)
+
+            # Now cached_chain is shorter than msg_ids
+            # Check if this is a temp_cache that can be upgraded
             if (
                 cached_chain.cache_item is None
                 and cached_chain.temp_cache_item is not None
@@ -508,16 +528,6 @@ class PlMessageBasedKVCache:
                     # match a temp cache, which is not we want, but this matching means the shortest chain
                     # is a temp cache, so if we want to find a real cache, we need a shorter chain
                     return _search(cached_chain.node_ids[:-1], allow_full_match=True)
-            if len(cached_chain.node_ids) == len(msg_ids):
-                logger.info(
-                    f"[PlMessageBasedKVCache] Cache HIT: full match for {len(msg_ids)} messages"
-                )
-                if allow_full_match:
-                    return cached_chain
-                # full match, maybe the user start a `retry` request in history.
-                # We need at least one new message to generate new response
-                # so use the cache for the previous messages and ignore the last one.
-                return _search(msg_ids[:-1], allow_full_match=True)
             # Now the cached_chain is a shorter chain than the incoming msg_ids
             # and not a temp cache, which means this is the max chain
             return cached_chain

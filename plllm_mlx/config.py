@@ -130,10 +130,15 @@ class LoggingConfig(BaseModel):
     Logging configuration settings.
 
     Attributes:
+        level: Logging level (debug, info, warning, error, critical).
         format: Log message format string.
         file: Optional log file path.
     """
 
+    level: str = Field(
+        default="info",
+        description="Logging level (debug, info, warning, error, critical)",
+    )
     format: str = Field(
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         description="Log format string",
@@ -142,6 +147,16 @@ class LoggingConfig(BaseModel):
         default=None,
         description="Optional log file path",
     )
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def validate_level(cls, v: str) -> str:
+        """Validate and normalize log level."""
+        v = v.lower()
+        valid_levels = {"debug", "info", "warning", "error", "critical"}
+        if v not in valid_levels:
+            raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
+        return v
 
 
 class PlConfig(BaseModel):

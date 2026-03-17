@@ -61,6 +61,9 @@ class PlThinkingStepProcessor(PlStepProcessor):
 
         if self.first_token_time is None:
             self.first_token_time = time.time()
+            logger.info(
+                f"[ThinkingStep] First token received, thinking_ended={self.thinking_ended}"
+            )
 
         # Just stop the generation
         if (gr is not None) and (PlMlxGetFinishReason(gr) is not None):
@@ -86,9 +89,13 @@ class PlThinkingStepProcessor(PlStepProcessor):
 
         if not self.is_in_thinking and not self.thinking_ended:
             # Check for begin token to detect start of thinking
+            logger.info(
+                f"[ThinkingStep] step({'' if gr is None else 'gr'}) checking begin token in {len(step_text_to_process)} chars, begin_tokens={tokens.begin_tokens}"
+            )
             has_begin_token = any(
                 bt in step_text_to_process for bt in tokens.begin_tokens if bt
             )
+            logger.info(f"[ThinkingStep] has_begin_token={has_begin_token}")
             if has_begin_token:
                 # Check if think_start_token is present
                 if (

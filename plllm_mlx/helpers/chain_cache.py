@@ -143,10 +143,24 @@ class PlChainCache(OrderedDict):
 
     def search_max_chain(self, node_ids: List[str]) -> Optional[PlChain]:
         """Search for the longest matching chain."""
+        import logging
+
+        logger = logging.getLogger("plllm_mlx.helpers.chain_cache")
         temp_chain = PlChain(node_ids)
-        match_chain = self.get(temp_chain.chain_id, None)
+        chain_id = temp_chain.chain_id
+        match_chain = self.get(chain_id, None)
+        logger.debug(
+            f"[ChainCache] search_max_chain: {len(node_ids)} msgs, chain_id={chain_id[:8]}..., found={match_chain is not None}"
+        )
         if match_chain is None:
-            return self.search_max_chain(node_ids[:-1]) if len(node_ids) > 1 else None
+            if len(node_ids) > 1:
+                result = self.search_max_chain(node_ids[:-1])
+                if result is not None:
+                    logger.debug(
+                        f"[ChainCache] Found shorter chain: {len(result.node_ids)} msgs"
+                    )
+                return result
+            return None
         else:
             return match_chain
 

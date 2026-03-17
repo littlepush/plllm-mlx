@@ -364,6 +364,7 @@ class PlModelLoader(ABC):
 
         cached_finish_reason = None
         total_tokens = 0
+        tool_call_received = False
 
         async for chunk in self.stream_generate_via_process(body, cancel_event):
             if self._verbose:
@@ -391,7 +392,10 @@ class PlModelLoader(ABC):
                 yield build_result
                 if return_done:
                     yield "data: [DONE]\n\n"
-                return
+                tool_call_received = True
+
+            if tool_call_received:
+                continue
 
             if chunk.finish_reason is not None:  # type: ignore
                 cached_finish_reason = chunk.finish_reason  # type: ignore
@@ -404,13 +408,14 @@ class PlModelLoader(ABC):
             if cached_finish_reason is not None:
                 break
 
-        if cached_finish_reason is None:
-            cached_finish_reason = "stop"
-        helper.finish_step(cached_finish_reason)
-        yield helper.build_yield_chunk(return_json)
+        if not tool_call_received:
+            if cached_finish_reason is None:
+                cached_finish_reason = "stop"
+            helper.finish_step(cached_finish_reason)
+            yield helper.build_yield_chunk(return_json)
 
-        if return_done:
-            yield "data: [DONE]\n\n"
+            if return_done:
+                yield "data: [DONE]\n\n"
 
     @yield_ticker("PlModelLoader")
     async def chat_completions_stream(
@@ -450,6 +455,7 @@ class PlModelLoader(ABC):
 
         cached_finish_reason = None
         total_tokens = 0
+        tool_call_received = False
 
         async for chunk in self.stream_generate(session_object):
             if self._verbose:
@@ -477,7 +483,10 @@ class PlModelLoader(ABC):
                 yield build_result
                 if return_done:
                     yield "data: [DONE]\n\n"
-                return
+                tool_call_received = True
+
+            if tool_call_received:
+                continue
 
             if chunk.finish_reason is not None:  # type: ignore
                 cached_finish_reason = chunk.finish_reason  # type: ignore
@@ -490,13 +499,14 @@ class PlModelLoader(ABC):
             if cached_finish_reason is not None:
                 break
 
-        if cached_finish_reason is None:
-            cached_finish_reason = "stop"
-        helper.finish_step(cached_finish_reason)
-        yield helper.build_yield_chunk(return_json)
+        if not tool_call_received:
+            if cached_finish_reason is None:
+                cached_finish_reason = "stop"
+            helper.finish_step(cached_finish_reason)
+            yield helper.build_yield_chunk(return_json)
 
-        if return_done:
-            yield "data: [DONE]\n\n"
+            if return_done:
+                yield "data: [DONE]\n\n"
 
     @async_ticker("PlModelLoader")
     async def chat_completions_restful(

@@ -124,26 +124,29 @@ def run_server(
     host: str = typer.Option("0.0.0.0", "--host", "-h"),
 ):
     """Run the server (internal command, used by LaunchAgent)."""
-    logger = setup_logging(level=log_level)
-
-    logger.info(f"Starting server on {host}:{port}")
-    logger.info(f"Config: {config}")
-
-    # Load configuration
+    # Load configuration first to get logging level
     if config.exists():
         pl_config = PlConfig.from_yaml(config)
     else:
         pl_config = PlConfig()
 
+    # Use logging level from config file
+    actual_log_level = pl_config.logging.level if pl_config.logging else log_level
+    logger = setup_logging(level=actual_log_level, config=pl_config.logging)
+
+    logger.info(f"Starting server on {host}:{port}")
+    logger.info(f"Config: {config}")
+    logger.debug(f"Log level: {actual_log_level}")
+
     # Create app
     app_instance = create_app(
-        config=pl_config, host=host, port=port, log_level=log_level
+        config=pl_config, host=host, port=port, log_level=actual_log_level
     )
 
     # Run server
     import uvicorn
 
-    uvicorn.run(app_instance, host=host, port=port, log_level=log_level)
+    uvicorn.run(app_instance, host=host, port=port, log_level=actual_log_level)
 
 
 # ==================== PS Command ====================

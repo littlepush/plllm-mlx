@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2025-03-17
+
+### Fixed
+- Fix KV cache not working in multi-turn conversations with tool calls
+- Fix cache lookup logic: check full match before temp cache upgrade
+- Fix tool call response handling: continue consuming generator after yielding tool call
+- Fix logging config: read log level from `logging.level` in config file
+- Remove per-token debug logs for better performance
+
+### Changed
+- Simplify logging config: use synchronous logging instead of async queue
+
 ## [1.5.6] - 2025-03-17
 
 ### Fixed

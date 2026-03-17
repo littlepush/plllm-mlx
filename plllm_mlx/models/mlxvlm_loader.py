@@ -448,6 +448,9 @@ class PlMlxVlmModel(PlModelLoader):
         )
 
         if self._enable_prefix_cache and self._prompt_cache:
+            logger.info(
+                f"[mlxvlm] Looking up cache, chain_cache size: {len(self._prompt_cache._chain_cache)}"
+            )
             matched_chain = self._prompt_cache.get_kv_cache(message_splits)
             if matched_chain is None:
                 matched_chain = PlChain([], cache_item=self._build_prompt_cache())
@@ -455,7 +458,7 @@ class PlMlxVlmModel(PlModelLoader):
             for m in message_splits[len(matched_chain.node_ids) :]:
                 logger.debug(f"vision count: {m.vision_count}/{m.msg_id}")
                 left_vision_count += m.vision_count
-            gen_prompt = "".join(
+            gen_prompt = "\n".join(
                 [m.full_content for m in message_splits[len(matched_chain.node_ids) :]]
             )
             logger.debug(f"left vision count: {left_vision_count}")
@@ -483,11 +486,16 @@ class PlMlxVlmModel(PlModelLoader):
 
     async def stream_generate(self, session_object: PlMlxVlmSessionStorage):
         """Stream generate tokens."""
+        logger.info(
+            f"[mlxvlm] stream_generate started, process_isolation={self.is_process_isolation_enabled()}"
+        )
         loop = asyncio.get_event_loop()
         matched_chain = session_object.matched_chain
         session_images = getattr(session_object, "images", None) or []
 
         def _sync_stream_generate():
+            logger.info("[mlxvlm] _sync_stream_generate started")
+            count = 0
             for result in mlx_vlm_stream_generate(
                 self._model,
                 self._processor,
@@ -503,13 +511,18 @@ class PlMlxVlmModel(PlModelLoader):
                 quantized_kv_start=self._quantized_kv_start,
                 draft_model=None,
             ):
+                count += 1
                 yield result
+            logger.info(f"[mlxvlm] _sync_stream_generate finished, {count} results")
 
         stpp = self.step_processor_clz(self._special_tokens)
+        logger.info(f"[mlxvlm] Created step processor: {stpp.step_clz_name()}")
 
         result_count = 0
         for gr in await loop.run_in_executor(None, lambda: _sync_stream_generate()):
             result_count += 1
+            if result_count % 50 == 0:
+                logger.debug(f"[mlxvlm] Processed {result_count} results")
 
             chunk = stpp.step(gr)
             if stpp.total_tokens >= self._max_output_tokens:
@@ -520,6 +533,10 @@ class PlMlxVlmModel(PlModelLoader):
             if not stpp.is_running:
                 break
 
+        logger.info(
+            f"[mlxvlm] Generation loop finished, {result_count} results, unprocessed={len(stpp.unprocessed_text)} chars"
+        )
+
         while stpp.unprocessed_text != "":
             chunk = stpp.step(None)
             if chunk is not None:
@@ -529,7 +546,15 @@ class PlMlxVlmModel(PlModelLoader):
         for tc in tool_calls:
             yield tc
 
+        # Add to cache BEFORE yielding finish_chunk
+        # because consumer will break after receiving finish_reason
+        logger.info(
+            f"[mlxvlm] After generation: enable_prefix_cache={self._enable_prefix_cache}, prompt_cache is None={self._prompt_cache is None}"
+        )
         if self._enable_prefix_cache and self._prompt_cache:
+            logger.info(
+                f"[mlxvlm] Adding to cache, matched_chain.cache_item is None: {matched_chain.cache_item is None}"
+            )
             self._prompt_cache.add_kv_cache(
                 [m.msg_id for m in session_object.message_splits],
                 matched_chain.cache_item,

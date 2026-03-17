@@ -344,8 +344,9 @@ def create_default_config(config_path: Path) -> None:
         config_path: Path where to create the config file.
     """
     default_config = {
-        "server": {"host": "0.0.0.0", "port": 8000, "log_level": "info"},
+        "server": {"host": "0.0.0.0", "port": 8000},
         "models": [],
+        "logging": {"level": "info"},
     }
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
