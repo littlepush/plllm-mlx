@@ -1,6 +1,6 @@
 [project]
 name = "plllm-mlx"
-version = "1.5.5"
+version = "1.5.6"
 description = "Standalone MLX-based LLM inference service with OpenAI compatible API"
 readme = "README.md"
 license = { text = "MIT" }

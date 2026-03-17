@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2025-03-17
+
+### Fixed
+- Prevent infinite loop in thinking_step_processor
+- Add MAX_ACCUMULATE_CHARS limit (100 chars) for accumulated text
+- Handle case when no begin_token is found (output as content directly)
+- Prevents O(n) string search on unbounded accumulated text
+
 ## [1.5.5] - 2025-03-17
 
 ### Added
