@@ -1,5 +1,47 @@
 # History
 
+## 2025-03-18: Comprehensive Test Suite Implementation
+
+### Task
+Create a complete test suite for plllm-mlx including unit tests (UT) and integration tests, supporting `uv run pytest` to run all tests.
+
+### Implementation
+
+**Unit Tests (217 test cases)**
+- `test_client.py`: PlClient API tests
+- `test_config.py`: Configuration loading/merging tests
+- `test_local_models.py`: Local model management tests
+- `test_model_detector.py`: Model detection tests
+- `test_utils.py`: Utility function tests
+- `test_helpers/`: Helper module tests
+  - `test_chain_cache.py`: Chain cache tests
+  - `test_chat_helper.py`: Chat completion helper tests
+  - `test_chunk_helper.py`: Chunk data structure tests
+  - `test_path_helper.py`: Path handling tests
+  - `test_step_info.py`: Step info tests
+  - `test_toolcall_helper.py`: Tool call parsing tests
+
+**Integration Tests (7 bash scripts)**
+- `test_01_health.sh`: Health check endpoints
+- `test_02_model_list.sh`: Model listing API
+- `test_03_model_load_unload.sh`: Model lifecycle
+- `test_04_chat_api.sh`: Chat completion API
+- `test_05_chat_cli.sh`: CLI chat command
+- `test_06_full_flow.sh`: Full service workflow
+- `test_07_subprocess.sh`: Subprocess management
+
+**Features**
+- `run_tests.sh` with `--quiet` (summary only) and `--redirect FILE` options
+- macOS-compatible timeout using perl
+- QUIET mode for cleaner CI output
+- Real model testing with automatic service start/stop
+
+### Key Learnings
+1. macOS `pgrep -c` syntax differs from Linux; use `pgrep -f "pattern" | wc -l`
+2. Process detection patterns: `plllm-mlx run-server` for main, `subprocess/python/main.py` for subprocess
+3. `jq` outputs JSON without spaces: `"is_loaded":true` not `"is_loaded": true`
+4. macOS lacks `timeout` command; use `perl -e 'alarm shift; exec @ARGV'` as alternative
+
 ## 2025-03-18: v1.5.9 - Fix subprocess isolation implementation
 
 ### Problem
