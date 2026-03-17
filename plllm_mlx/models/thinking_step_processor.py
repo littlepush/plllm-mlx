@@ -35,6 +35,10 @@ class PlThinkingStepProcessor(PlStepProcessor):
     - After think_end, regular content generation begins
     """
 
+    # Maximum chars to accumulate while waiting for think_start_token
+    # If exceeded, assume model is outputting content without thinking
+    MAX_ACCUMULATE_CHARS = 100
+
     def __init__(self, special_tokens: Optional["SpecialTokens"] = None):
         super().__init__(special_tokens)
         self.is_in_thinking = False
@@ -98,8 +102,18 @@ class PlThinkingStepProcessor(PlStepProcessor):
                     ]
                 else:
                     # Not enough tokens, wait for more
-                    self.unprocessed_text = step_text_to_process
-                    return None
+                    # But if accumulated text is too long, assume no thinking mode
+                    if len(step_text_to_process) > self.MAX_ACCUMULATE_CHARS:
+                        # Model is outputting content without thinking tags
+                        self.thinking_ended = True
+                        # Fall through to output content
+                    else:
+                        self.unprocessed_text = step_text_to_process
+                        return None
+            else:
+                # No begin_token found, output as content directly
+                self.thinking_ended = True
+                # Fall through to output content
 
         if self.is_in_thinking:
             if (
