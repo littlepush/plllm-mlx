@@ -60,7 +60,6 @@ def _hf_matches_mlx(model_id: str) -> bool:
     We'll check if there's an 'mlx' or 'apple' folder in the model repo.
     """
     try:
-
         # Try to download a config file to verify the model exists
         # Check for MLX-specific files
         cache_model_dir = get_model_cache_path(model_id)

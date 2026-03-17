@@ -8,6 +8,7 @@ using macOS LaunchAgent for background service execution.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -310,6 +311,9 @@ def stop_service() -> bool:
     Returns:
         True if service stopped successfully, False otherwise.
     """
+    # Clean up all subprocesses first
+    _cleanup_subprocesses()
+
     if not PLIST_PATH.exists():
         logger.warning("Service not running (plist not found)")
         return True
@@ -334,6 +338,39 @@ def stop_service() -> bool:
 
     logger.info("Service stopped")
     return True
+
+
+def _cleanup_subprocesses() -> None:
+    """Clean up all model subprocesses."""
+    subprocess_dir = CONFIG_DIR / "subprocess"
+    if subprocess_dir.exists():
+        for sock_file in subprocess_dir.glob("*.sock"):
+            try:
+                sock_file.unlink()
+                logger.debug(f"Removed socket: {sock_file}")
+            except Exception:
+                pass
+
+    # Kill any orphan subprocess processes
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "subprocess serve"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            pids = result.stdout.strip().split("\n")
+            for pid_str in pids:
+                pid_str = pid_str.strip()
+                if pid_str:
+                    try:
+                        pid = int(pid_str)
+                        os.kill(pid, signal.SIGTERM)
+                        logger.info(f"Terminated subprocess PID: {pid}")
+                    except (ValueError, ProcessLookupError, PermissionError) as e:
+                        logger.debug(f"Could not kill PID {pid_str}: {e}")
+    except Exception as e:
+        logger.debug(f"Error cleaning up subprocesses: {e}")
 
 
 def create_default_config(config_path: Path) -> None:

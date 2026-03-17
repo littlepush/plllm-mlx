@@ -1,95 +1,64 @@
 """
-MLX VLM model loader for Apple Silicon.
+MLX model loader for Apple Silicon.
 
-This module provides the MLX VLM (Vision Language Model) loader for running
-multimodal inference on Apple Silicon using the MLX framework.
+This module provides the MLX model loader for running LLM inference
+on Apple Silicon using the MLX framework.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
+from typing import Optional
 
 import mlx.core as mx
+from mlx_lm import load, stream_generate
+from mlx_lm.models import cache as mlx_cache
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
-from mlx_vlm import load
-from mlx_vlm.generate import stream_generate as mlx_vlm_stream_generate
-from mlx_vlm.models import cache as mlx_cache
 
 from plllm_mlx.helpers import PlChain
 from plllm_mlx.logging_config import get_logger
 
-from .base_step_processor import PlStepProcessor
-from .kv_cache import PlMessageBasedKVCache
-from .model_loader import PlModelLoader, async_ticker
-from .special_tokens import SpecialTokens, detect_special_tokens
+from ..step_processor import PlStepProcessor
+from ..kv_cache import PlMessageBasedKVCache
+from ..loader import PlModelLoader, async_ticker
+from ..special_tokens import SpecialTokens, detect_special_tokens
 
 logger = get_logger(__name__)
 
 
-def has_consecutive_tools(messages: List[dict]) -> bool:
-    """
-    Check if there are consecutive tool responses without an assistant message in between.
-
-    Args:
-        messages: Original message list.
-
-    Returns:
-        True if there are consecutive tool responses, False otherwise.
-    """
-    for i in range(len(messages)):
-        if messages[i].get("role") == "tool":
-            if i == 0 or messages[i - 1].get("role") != "assistant":
-                return True
-    return False
-
-
-def insert_fake_assistants(messages: List[dict]) -> List[dict]:
-    """
-    Insert empty assistant messages before consecutive tool responses.
-
-    This is used to work around chat template issues with models like Qwen3.5
-    that may merge consecutive tool responses.
-
-    Args:
-        messages: Original message list.
-
-    Returns:
-        Modified message list with fake assistant messages inserted.
-    """
-    modified = []
-
-    for i, msg in enumerate(messages):
-        if msg.get("role") == "tool" and (
-            i == 0 or messages[i - 1].get("role") != "assistant"
-        ):
-            fake_assistant = {"role": "assistant", "content": ""}
-            modified.append(fake_assistant)
-
-        modified.append(msg)
-
-    return modified
-
-
-class PlMlxVlmSessionStorage:
-    """Session storage for MLX VLM inference."""
+class PlMlxSessionStorage:
+    """Session storage for MLX inference."""
 
     pass
 
 
-class PlMlxVlmModel(PlModelLoader):
-    """
-    MLX VLM model loader for Apple Silicon.
+def _block_count_helper(total_tokens: int) -> int:
+    """Helper function to determine block count for batching."""
+    if total_tokens < 300:
+        return 3
+    elif total_tokens < 800:
+        return 5
+    elif total_tokens < 1500:
+        return 8
+    elif total_tokens < 2000:
+        return 10
+    else:
+        return 15
 
-    This loader uses the MLX-VLM framework for efficient multimodal inference
-    on Apple Silicon, with support for vision-language models.
+
+class PlMlxModel(PlModelLoader):
+    """
+    MLX model loader for Apple Silicon.
+
+    This loader uses the MLX framework for efficient inference on Apple Silicon,
+    with support for KV cache optimization and prefix caching.
     """
 
     def __init__(
         self, model_id: str, step_processor_clz: type[PlStepProcessor]
     ) -> None:
         """
-        Initialize the MLX VLM model loader.
+        Initialize the MLX model loader.
 
         Args:
             model_id: The model name or path.
@@ -97,14 +66,10 @@ class PlMlxVlmModel(PlModelLoader):
         """
         super().__init__(model_id, step_processor_clz)
         self._model = None
-        self._processor = None
         self._tokenizer = None
         self._lock = asyncio.Lock()
         self._special_tokens: Optional[SpecialTokens] = None
-        self._begin_tokens = ["<|start|>", "<|im_start|>"]
-        self._end_tokens = ["<|end|>", "<|im_end|>"]
-        self._vision_begin_tokens = ["<|vision_start|>"]
-        self._vision_end_tokens = ["<|vision_end|>"]
+        self._end_tokens = ["<|end|>"]
 
         self._max_prompt_tokens = 32 * 1024
         self._max_output_tokens = 16 * 1024
@@ -112,7 +77,7 @@ class PlMlxVlmModel(PlModelLoader):
         self._use_model_config_max_tokens = False
 
         # Generation parameters
-        self._top_p = 0.9
+        self._top_p = 0
         self._top_k = 100
         self._min_p = 0.0
         self._repetition_penalty = 1.1
@@ -121,34 +86,37 @@ class PlMlxVlmModel(PlModelLoader):
         self._xtc_threshold = 0.0
         self._logit_bias = None
         self._logprobs = -1
-        self._temperature = 0.7
+        self._temperature = 0.8
 
         self._support_system_role = True
 
         # KVCache optimization parameters
         self._prefill_step_size = 4096
         self._kv_bits = None
-        self._kv_group_size = 64
+        self._kv_group_size = 32
         self._quantized_kv_start = 0
         self._max_kv_size = None
 
         # Prefix KV cache
         self._enable_prefix_cache = True
         self._prompt_cache: Optional[PlMessageBasedKVCache] = None
+        self._num_layers = 40
+
+        # Message boundary tokens
+        self._begin_tokens = ["<|start|>", "<|im_start|>"]
+        self._end_tokens = ["<|end|>", "<|im_end|>"]
 
     @staticmethod
     def model_loader_name() -> str:
-        return "mlxvlm"
+        return "mlx"
 
     def _build_prompt_cache(self):
         """Build a new prompt cache."""
         if self._max_kv_size is None or self._max_kv_size == 0:
-            return mlx_cache.make_prompt_cache(
-                self._model.language_model, max_kv_size=None
-            )
+            return mlx_cache.make_prompt_cache(self._model, max_kv_size=None)
         else:
             return mlx_cache.make_prompt_cache(
-                self._model.language_model, max_kv_size=self._max_kv_size
+                self._model, max_kv_size=self._max_kv_size
             )
 
     def _make_sampler(self, parameters: dict = None):
@@ -179,7 +147,7 @@ class PlMlxVlmModel(PlModelLoader):
             params.get("repetition_context_size", self._repetition_context_size),
         )
 
-    @async_ticker("PlMlxVlmModel")
+    @async_ticker("PlMlxModel")
     async def ensure_model_loaded(self) -> None:
         """Load the model if not already loaded."""
         if self._model is not None:
@@ -188,82 +156,58 @@ class PlMlxVlmModel(PlModelLoader):
             if self._model is not None:
                 return
 
-            logger.info(f"Loading mlx-vlm model: {self.model_name}")
-            self._model, self._processor = load(self.model_name)
-            self._tokenizer = self._processor.tokenizer
+            loop = asyncio.get_event_loop()
 
-            # Auto-detect special tokens
+            def _sync_load():
+                return load(self.model_name, return_config=True)
+
+            self._model, self._tokenizer, model_config = await loop.run_in_executor(
+                None, _sync_load
+            )
+
+            def _sync_eval():
+                self._model.eval()
+
+            await loop.run_in_executor(None, _sync_eval)
+
             self._special_tokens = detect_special_tokens(self._tokenizer)
             self._begin_tokens = self._special_tokens.begin_tokens
             self._end_tokens = self._special_tokens.end_tokens
-            if self._special_tokens.vision_start_token:
-                self._vision_begin_tokens = [self._special_tokens.vision_start_token]
-            if self._special_tokens.vision_end_token:
-                self._vision_end_tokens = [self._special_tokens.vision_end_token]
 
-            # Try to get max_position_embeddings
-            try:
-                max_model_tokens = getattr(
-                    self._model.config, "max_position_embeddings", None
-                )
-                if not max_model_tokens:
-                    text_config = getattr(self._model.config, "text_config", None)
-                    if text_config:
-                        max_model_tokens = getattr(
-                            text_config, "max_position_embeddings", None
-                        )
-                if max_model_tokens:
-                    self._use_model_config_max_tokens = True
-                    self._max_model_tokens = max_model_tokens
-                    logger.info(
-                        f"Model {self.model_name} supports max_position_embeddings={max_model_tokens}"
-                    )
-            except Exception as e:
-                logger.info(f"Failed to get model config: {e}")
-
-            # Initialize message-based prefix cache
-            if self._enable_prefix_cache:
-                num_layers = 40
-                try:
-                    text_config = getattr(self._model.config, "text_config", None)
-                    if text_config:
-                        num_layers = getattr(text_config, "num_hidden_layers", 40)
-                    else:
-                        num_layers = getattr(
-                            self._model.config, "num_hidden_layers", 40
-                        )
-                except Exception:
-                    pass
-
-                self._prompt_cache = PlMessageBasedKVCache(
-                    begin_tokens=self._begin_tokens,
-                    end_tokens=self._end_tokens,
-                    vision_begin_tokens=self._vision_begin_tokens,
-                    vision_end_tokens=self._vision_end_tokens,
-                )
-                self._prompt_cache.set_num_layers(num_layers)
+            max_model_tokens = model_config.get("max_position_embeddings", None)
+            if max_model_tokens:
+                self._use_model_config_max_tokens = True
+                self._max_model_tokens = max_model_tokens
                 logger.info(
-                    f"[mlxvlm] Initialized PlMessageBasedKVCache, num_layers={num_layers}"
+                    f"Model {self.model_name} supports max_position_embeddings={max_model_tokens}"
                 )
 
-    @async_ticker("PlMlxVlmModel")
+            self._num_layers = model_config.get("num_hidden_layers", 40)
+
+            if self._enable_prefix_cache:
+                self._prompt_cache = PlMessageBasedKVCache(
+                    begin_tokens=self._begin_tokens, end_tokens=self._end_tokens
+                )
+                self._prompt_cache.set_num_layers(self._num_layers)
+                logger.info(
+                    f"[mlx] Initialized PlMessageBasedKVCache, num_layers={self._num_layers}"
+                )
+
+    @async_ticker("PlMlxModel")
     async def ensure_model_unloaded(self) -> None:
         """Unload the model."""
         async with self._lock:
             if self._model is not None:
                 del self._model
-            if self._processor is not None:
-                del self._processor
             if self._tokenizer is not None:
                 del self._tokenizer
             mx.metal.clear_cache()
             self._model = None
-            self._processor = None
             self._tokenizer = None
 
             if self._prompt_cache:
                 self._prompt_cache.clear()
-                logger.info("[mlxvlm] Cleared PlMessageBasedKVCache")
+                logger.info("[mlx] Cleared PlMessageBasedKVCache")
 
     def set_config(self, model_config: dict) -> None:
         """Set model configuration."""
@@ -319,10 +263,6 @@ class PlMlxVlmModel(PlModelLoader):
             self._begin_tokens = model_config["begin_tokens"]
         if "end_tokens" in model_config:
             self._end_tokens = model_config["end_tokens"]
-        if "vision_begin_tokens" in model_config:
-            self._vision_begin_tokens = model_config["vision_begin_tokens"]
-        if "vision_end_tokens" in model_config:
-            self._vision_end_tokens = model_config["vision_end_tokens"]
 
     def get_config(self) -> dict:
         """Get model configuration."""
@@ -349,11 +289,9 @@ class PlMlxVlmModel(PlModelLoader):
             "enable_prefix_cache": self._enable_prefix_cache,
             "begin_tokens": self._begin_tokens,
             "end_tokens": self._end_tokens,
-            "vision_begin_tokens": self._vision_begin_tokens,
-            "vision_end_tokens": self._vision_end_tokens,
         }
 
-    def prepare_prompt(self, body: dict) -> PlMlxVlmSessionStorage:
+    def prepare_prompt(self, body: dict) -> PlMlxSessionStorage:
         """Prepare prompt from request body."""
         input_question = body.get("prompt", body.get("messages", None))
         sampler = self._make_sampler(body)
@@ -376,58 +314,35 @@ class PlMlxVlmModel(PlModelLoader):
             f"output={requested_max_tokens}, prompt={dynamic_max_prompt_tokens}"
         )
 
-        # Parse messages and extract images
+        # Parse messages
         if isinstance(input_question, list):
             msgs = []
-            images = []
             for msg in input_question:
                 content = msg.get("content", None)
                 role = msg.get("role", "user")
-                if role == "developer":
-                    role = "system"
                 if role == "system" and not self._support_system_role:
                     role = "assistant"
                 if isinstance(content, str):
                     msgs.append({"role": role, "content": content})
                 elif isinstance(content, dict):
                     content_type = content.get("type", "non-text")
-                    if content_type == "image_url":
-                        image_url = content.get("image_url", {})
-                        if isinstance(image_url, dict):
-                            url = image_url.get("url", "")
-                        else:
-                            url = str(image_url)
-                        if url:
-                            images.append(url)
-                        msgs.append({"role": role, "content": content})
-                    elif content_type == "text":
+                    if content_type == "text":
                         msgs.append({"role": role, "content": content.get("text")})
                 elif isinstance(content, list):
+                    temp_msg = []
                     for c in content:
-                        if isinstance(c, dict):
+                        if isinstance(c, str):
+                            temp_msg.append(c)
+                        elif isinstance(c, dict):
                             content_type = c.get("type", "non-text")
-                            if content_type == "image_url":
-                                image_url = c.get("image_url", {})
-                                if isinstance(image_url, dict):
-                                    url = image_url.get("url", "")
-                                else:
-                                    url = str(image_url)
-                                if url:
-                                    images.append(url)
-                    msgs.append({"role": role, "content": content})
+                            if content_type == "text":
+                                temp_msg.append(c.get("text", ""))
+                    msgs.append({"role": role, "content": "\n".join(temp_msg).strip()})
         else:
             msgs = [{"role": "user", "content": input_question}]
-            images = []
 
         tools = body.get("tools", None)
         tool_choice = body.get("tool_choice", None)
-
-        # Insert fake assistants for consecutive tools
-        if has_consecutive_tools(msgs):
-            msgs = insert_fake_assistants(msgs)
-            logger.debug(
-                "[FakeAssistant] Inserted fake assistants for consecutive tools"
-            )
 
         # Apply chat template
         prompt = self._tokenizer.apply_chat_template(
@@ -438,7 +353,6 @@ class PlMlxVlmModel(PlModelLoader):
             tool_choice=tool_choice,
         )
 
-        # Message-based Prefix Cache
         gen_prompt = prompt
         matched_chain = None
         message_splits = (
@@ -448,59 +362,37 @@ class PlMlxVlmModel(PlModelLoader):
         )
 
         if self._enable_prefix_cache and self._prompt_cache:
-            logger.info(
-                f"[mlxvlm] Looking up cache, chain_cache size: {len(self._prompt_cache._chain_cache)}"
-            )
             matched_chain = self._prompt_cache.get_kv_cache(message_splits)
             if matched_chain is None:
                 matched_chain = PlChain([], cache_item=self._build_prompt_cache())
-            left_vision_count = 0
-            for m in message_splits[len(matched_chain.node_ids) :]:
-                logger.debug(f"vision count: {m.vision_count}/{m.msg_id}")
-                left_vision_count += m.vision_count
-            gen_prompt = "\n".join(
+            gen_prompt = "".join(
                 [m.full_content for m in message_splits[len(matched_chain.node_ids) :]]
             )
-            logger.debug(f"left vision count: {left_vision_count}")
-
-            if len(images) > 0:
-                if left_vision_count == 0:
-                    images = []
-                elif left_vision_count != len(images):
-                    images = images[-left_vision_count:]
         else:
             matched_chain = PlChain([m.msg_id for m in message_splits])
 
-        logger.debug(f"[mlxvlm] Using prompt: {len(gen_prompt)} chars")
+        logger.debug(f"[mlx] Using prompt: {len(gen_prompt)} chars")
 
-        session_storage = PlMlxVlmSessionStorage()
+        session_storage = PlMlxSessionStorage()
         setattr(session_storage, "matched_chain", matched_chain)
         setattr(session_storage, "prompt", gen_prompt)
         setattr(session_storage, "sampler", sampler)
         setattr(session_storage, "logits_processors", logits_processors)
         setattr(session_storage, "max_tokens", requested_max_tokens)
         setattr(session_storage, "message_splits", message_splits)
-        setattr(session_storage, "images", images)
 
         return session_storage
 
-    async def stream_generate(self, session_object: PlMlxVlmSessionStorage):
+    async def stream_generate(self, session_object: PlMlxSessionStorage):
         """Stream generate tokens."""
-        logger.info(
-            f"[mlxvlm] stream_generate started, process_isolation={self.is_process_isolation_enabled()}"
-        )
         loop = asyncio.get_event_loop()
         matched_chain = session_object.matched_chain
-        session_images = getattr(session_object, "images", None) or []
 
         def _sync_stream_generate():
-            logger.info("[mlxvlm] _sync_stream_generate started")
-            count = 0
-            for result in mlx_vlm_stream_generate(
+            for token in stream_generate(
                 self._model,
-                self._processor,
+                self._tokenizer,
                 prompt=session_object.prompt,
-                image=session_images if session_images else None,
                 max_tokens=session_object.max_tokens,
                 prompt_cache=matched_chain.cache_item,
                 sampler=session_object.sampler,
@@ -511,19 +403,11 @@ class PlMlxVlmModel(PlModelLoader):
                 quantized_kv_start=self._quantized_kv_start,
                 draft_model=None,
             ):
-                count += 1
-                yield result
-            logger.info(f"[mlxvlm] _sync_stream_generate finished, {count} results")
+                yield token
 
         stpp = self.step_processor_clz(self._special_tokens)
-        logger.info(f"[mlxvlm] Created step processor: {stpp.step_clz_name()}")
 
-        result_count = 0
         for gr in await loop.run_in_executor(None, lambda: _sync_stream_generate()):
-            result_count += 1
-            if result_count % 50 == 0:
-                logger.debug(f"[mlxvlm] Processed {result_count} results")
-
             chunk = stpp.step(gr)
             if stpp.total_tokens >= self._max_output_tokens:
                 logger.info("reach the max output token size, force to stop!")
@@ -532,10 +416,6 @@ class PlMlxVlmModel(PlModelLoader):
                 yield chunk
             if not stpp.is_running:
                 break
-
-        logger.info(
-            f"[mlxvlm] Generation loop finished, {result_count} results, unprocessed={len(stpp.unprocessed_text)} chars"
-        )
 
         while stpp.unprocessed_text != "":
             chunk = stpp.step(None)
@@ -546,15 +426,7 @@ class PlMlxVlmModel(PlModelLoader):
         for tc in tool_calls:
             yield tc
 
-        # Add to cache BEFORE yielding finish_chunk
-        # because consumer will break after receiving finish_reason
-        logger.info(
-            f"[mlxvlm] After generation: enable_prefix_cache={self._enable_prefix_cache}, prompt_cache is None={self._prompt_cache is None}"
-        )
         if self._enable_prefix_cache and self._prompt_cache:
-            logger.info(
-                f"[mlxvlm] Adding to cache, matched_chain.cache_item is None: {matched_chain.cache_item is None}"
-            )
             self._prompt_cache.add_kv_cache(
                 [m.msg_id for m in session_object.message_splits],
                 matched_chain.cache_item,
@@ -564,13 +436,13 @@ class PlMlxVlmModel(PlModelLoader):
         finish_chunk = stpp.finish()
         yield finish_chunk
 
-    async def completion_stream_generate(self, session_object: PlMlxVlmSessionStorage):
+    async def completion_stream_generate(self, session_object: PlMlxSessionStorage):
         """Stream generate for completion mode."""
         async for chunk in self.stream_generate(session_object):
             yield chunk
 
 
-# Register the MLX VLM model loader
-PlModelLoader.registerModelLoader("mlxvlm", PlMlxVlmModel)
+# Register the MLX model loader
+PlModelLoader.registerModelLoader("mlx", PlMlxModel)
 
-logger.debug("Registered MLX VLM model loader")
+logger.debug("Registered MLX model loader")

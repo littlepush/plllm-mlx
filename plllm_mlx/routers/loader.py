@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from plllm_mlx.models.model_loader import PlModelLoader
+from plllm_mlx.subprocess.python.loader import PlModelLoader
 
 router = APIRouter(prefix="/v1", tags=["Loader"])
 

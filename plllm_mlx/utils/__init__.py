@@ -4,7 +4,7 @@ Utility functions for plllm-mlx CLI.
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, Dict, List
 
 
 def print_table(rows: List[List[str]], headers: List[str] = None):

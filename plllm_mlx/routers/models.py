@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from plllm_mlx.logging_config import get_logger
 from plllm_mlx.models.local_models import get_local_model_manager
 from plllm_mlx.models.model_detector import PlModelDetector
-from plllm_mlx.models.model_loader import PlModelLoader
+from plllm_mlx.subprocess.python.loader import PlModelLoader
 
 logger = get_logger(__name__)
 
@@ -111,8 +111,8 @@ async def ensure_model_loaded(
     return {
         "model_name": model_name,
         "is_loaded": model.is_loaded,
-        "loader": type(model).model_loader_name(),
-        "step_processor": model.step_processor_clz.step_clz_name(),
+        "loader": model.loader,
+        "step_processor": model.step_processor,
     }
 
 

@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.9] - 2025-03-18
+
+### Fixed
+- Fix subprocess startup: use `sys.executable` to run `subprocess/python/main.py` instead of relying on `plllm-mlx` command in PATH
+- Fix SSE streaming format: ensure proper `\n\n` suffix for each data line
+- Add `chat_completions_restful` method to `PlModelProxy` for non-streaming responses
+- Filter non-serializable kwargs (like `cancel_event`) in subprocess client
+
+### Added
+- `plllm_mlx/subprocess/python/main.py` - Entry point for Python subprocess
+
+## [1.5.8] - 2025-03-17
+
+### Added
+- `plx` command alias for simplified usage:
+  - `plx serve` - Start service
+  - `plx stop` / `plx restart` - Service management
+  - `plx load <model>` / `plx unload <model>` - Model management
+  - `plx ps` - List loaded models
+  - `plx ls` - List local models
+  - `plx status` - Check service status
+  - `plx chat` - Interactive chat
+- Subprocess isolation architecture for model inference
+- `plx subprocess serve` - Start model subprocess server
+- `plx subprocess list` - List running subprocesses
+- `plx subprocess status` - Check subprocess status
+- `plx subprocess stop` - Stop a subprocess
+- HTTP over Unix Domain Socket communication between main process and subprocess
+- Thread isolation in subprocess (API thread + inference thread)
+- Health check polling in main process (1 second interval)
+- Automatic zombie socket cleanup
+
+### Changed
+- Reorganized directory structure:
+  - `models/` now only contains local model file management (main process)
+  - `subprocess/python/` contains model loader implementations (subprocess)
+  - `subprocess/python/loaders/` for loader implementations (dynamic loading)
+  - `subprocess/python/stepps/` for step processor implementations (dynamic loading)
+- Model loaders and step processors are now dynamically loaded from subdirectories
+- Updated all import paths to use new module structure
+
+### Architecture
+- Main process: `subprocess/client.py`, `subprocess/manager.py`, `subprocess/proxy.py`
+- Subprocess: `subprocess/python/server.py`, `subprocess/python/loader.py`, etc.
+- Communication: HTTP over Unix Domain Socket (`~/.plllm-mlx/subprocess/*.sock`)
+
 ## [1.5.7] - 2025-03-17
 
 ### Fixed

@@ -1,8 +1,13 @@
 """
 Local model management without external dependencies.
 
-This module provides local model management functionality without Redis
-or other external storage. Model configurations are stored in memory only.
+This module provides local model management functionality.
+All models are loaded in separate subprocesses via PlModelProxy.
+
+Main process responsibilities:
+- Manage model configurations
+- Start/stop model subprocesses
+- Provide model proxy objects for inference
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from plllm_mlx.helpers import get_hf_cache_dir
 from plllm_mlx.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from .model_loader import PlModelLoader
+    from plllm_mlx.subprocess.proxy import PlModelProxy
 
 logger = get_logger(__name__)
 
@@ -74,11 +79,11 @@ class PlLocalModelManager:
     """
     Manager for local models.
 
-    This class manages local models without external storage (no Redis).
-    Model configurations are stored in memory only.
+    This class manages local models. All models are loaded in separate
+    subprocesses via PlModelProxy.
 
     Attributes:
-        _models_in_memory: Dictionary of loaded model instances (key: model name).
+        _model_proxies: Dictionary of model proxy instances (key: model name).
         _models_on_disk: List of models found on disk.
         _model_configs: In-memory storage for model configurations (key: model name).
         _id_to_name: Mapping from model ID to model name.
@@ -86,15 +91,16 @@ class PlLocalModelManager:
 
     def __init__(self) -> None:
         """Initialize the local model manager."""
-        self._models_in_memory: Dict[str, "PlModelLoader"] = {}
+        self._model_proxies: Dict[str, "PlModelProxy"] = {}
         self._models_on_disk: List[str] = []
         self._model_configs: Dict[str, PlLocalModelInfo] = {}
-        self._id_to_name: Dict[str, str] = {}  # model_id -> model_name
-        # Load local models on initialization
+        self._id_to_name: Dict[str, str] = {}
         self._load_local_models()
 
     def _load_local_models(self) -> None:
         """Load local models from HuggingFace cache."""
+        from plllm_mlx.subprocess.proxy import PlModelProxy
+
         cache_dir = Path(get_hf_cache_dir())
         if not cache_dir.exists():
             logger.info(f"HuggingFace cache directory not found: {cache_dir}")
@@ -112,32 +118,22 @@ class PlLocalModelManager:
         logger.info(f"Found {len(self._models_on_disk)} models on disk")
 
         for model_name in self._models_on_disk:
-            if model_name in self._models_in_memory:
+            if model_name in self._model_proxies:
                 continue
 
-            # Get or create model info
             model_info = self._model_configs.get(model_name)
             if model_info is None:
-                # Default: id is empty, use model name as effective id
                 model_info = PlLocalModelInfo(name=model_name)
                 self._model_configs[model_name] = model_info
 
-            # Create the model but don't load into memory
-            from .model_loader import PlModelLoader
-
-            local_model = PlModelLoader.createModel(
-                model_info.model_loader, model_info.name, model_info.step_processor
+            proxy = PlModelProxy(
+                model_name=model_info.name,
+                loader=model_info.model_loader,
+                step_processor=model_info.step_processor,
             )
-            if local_model is None:
-                logger.error(
-                    f"Failed to create local model loader for: {model_info.name}"
-                )
-                continue
+            proxy.set_config(_convert_config_str_to_dict(model_info.config))
+            self._model_proxies[model_info.name] = proxy
 
-            local_model.set_config(_convert_config_str_to_dict(model_info.config))
-            self._models_in_memory[model_info.name] = local_model
-
-            # Register ID mapping
             effective_id = model_info.get_effective_id()
             self._id_to_name[effective_id] = model_info.name
 
@@ -158,13 +154,12 @@ class PlLocalModelManager:
         Returns:
             True if successful, False otherwise.
         """
-        from .base_step_processor import PlStepProcessor
+        from plllm_mlx.subprocess.python.step_processor import PlStepProcessor
 
         model_info = self._model_configs.get(model_name)
         if model_info is None:
             model_info = PlLocalModelInfo(name=model_name)
 
-        # No need to update if same
         if model_info.step_processor == step_processor_name:
             return True
 
@@ -178,10 +173,9 @@ class PlLocalModelManager:
         model_info.step_processor = step_processor_name
         self._model_configs[model_name] = model_info
 
-        # Update in memory
-        if model_name in self._models_in_memory:
-            model = self._models_in_memory[model_name]
-            model.update_step_processor(step_processor_name)
+        if model_name in self._model_proxies:
+            proxy = self._model_proxies[model_name]
+            await proxy.update_step_processor(step_processor_name)
 
         return True
 
@@ -206,9 +200,8 @@ class PlLocalModelManager:
         model_info.config = _convert_dict_to_config_str(config)
         self._model_configs[model_name] = model_info
 
-        if model_name in self._models_in_memory:
-            model = self._models_in_memory[model_name]
-            model.set_config({key: value})
+        if model_name in self._model_proxies:
+            self._model_proxies[model_name].set_config({key: value})
 
         return True
 
@@ -233,9 +226,8 @@ class PlLocalModelManager:
             model_info.config = _convert_dict_to_config_str(config)
             self._model_configs[model_name] = model_info
 
-            if model_name in self._models_in_memory:
-                model = self._models_in_memory[model_name]
-                model.set_config(config)
+            if model_name in self._model_proxies:
+                self._model_proxies[model_name].set_config(config)
 
         return True
 
@@ -252,7 +244,7 @@ class PlLocalModelManager:
         Returns:
             True if successful, False otherwise.
         """
-        from .model_loader import PlModelLoader
+        from plllm_mlx.subprocess.python.loader import PlModelLoader
 
         model_info = self._model_configs.get(model_name)
         if model_info is None:
@@ -271,29 +263,29 @@ class PlLocalModelManager:
         model_info.model_loader = model_loader_name
         self._model_configs[model_name] = model_info
 
-        if model_name not in self._models_in_memory:
+        if model_name not in self._model_proxies:
             return True
 
-        model_is_loaded = self._models_in_memory[model_name].is_loaded
-        if model_is_loaded:
-            await self._models_in_memory[model_name].unload_model()
+        old_proxy = self._model_proxies[model_name]
+        was_loaded = old_proxy.is_loaded
 
-        local_model = PlModelLoader.createModel(
-            model_loader_name, model_name, model_info.step_processor
+        if was_loaded:
+            await old_proxy.unload_model()
+
+        new_proxy = PlModelProxy(
+            model_name=model_name,
+            loader=model_loader_name,
+            step_processor=model_info.step_processor,
         )
-        if local_model is None:
-            logger.error(f"Failed to create model with loader: {model_loader_name}")
-            return False
+        new_proxy.set_config(_convert_config_str_to_dict(model_info.config))
+        self._model_proxies[model_name] = new_proxy
 
-        self._models_in_memory[model_name] = local_model
-
-        if model_is_loaded:
-            await local_model.load_model()
-            local_model.set_config(_convert_config_str_to_dict(model_info.config))
+        if was_loaded:
+            await new_proxy.load_model()
 
         return True
 
-    def find_model(self, model_id_or_name: str) -> Optional["PlModelLoader"]:
+    def find_model(self, model_id_or_name: str) -> Optional["PlModelProxy"]:
         """
         Find a model by id or name.
 
@@ -301,15 +293,12 @@ class PlLocalModelManager:
             model_id_or_name: The model ID or real model name.
 
         Returns:
-            The model loader instance, or None if not found.
+            The model proxy instance, or None if not found.
         """
-        # 1. Try to find by ID first
         real_name = self._id_to_name.get(model_id_or_name)
         if real_name is not None:
-            return self._models_in_memory.get(real_name)
-
-        # 2. Try to find by real name
-        return self._models_in_memory.get(model_id_or_name)
+            return self._model_proxies.get(real_name)
+        return self._model_proxies.get(model_id_or_name)
 
     def add_model_id(self, model_id: str, model_name: str) -> bool:
         """
@@ -322,16 +311,14 @@ class PlLocalModelManager:
         Returns:
             True if successful, False if model not found.
         """
-        if model_name not in self._models_in_memory:
+        if model_name not in self._model_proxies:
             logger.warning(
                 f"Cannot add id '{model_id}': model '{model_name}' not found"
             )
             return False
 
-        # Add ID mapping
         self._id_to_name[model_id] = model_name
 
-        # Update model info
         model_info = self._model_configs.get(model_name)
         if model_info:
             model_info.id = model_id
@@ -353,7 +340,6 @@ class PlLocalModelManager:
             model_name = self._id_to_name[model_id]
             del self._id_to_name[model_id]
 
-            # Update model info
             model_info = self._model_configs.get(model_name)
             if model_info:
                 model_info.id = ""
@@ -379,13 +365,13 @@ class PlLocalModelManager:
             List of model information dictionaries.
         """
         result = []
-        for model in self._models_in_memory.values():
+        for proxy in self._model_proxies.values():
             info = {
-                "model_name": model.model_name,
-                "model_loader": type(model).model_loader_name(),
-                "step_processor": model.step_processor_clz.step_clz_name(),
-                "is_loaded": model.is_loaded,
-                "config": model.get_config(),
+                "model_name": proxy.model_name,
+                "model_loader": proxy.loader,
+                "step_processor": proxy.step_processor,
+                "is_loaded": proxy.is_loaded,
+                "config": proxy.get_config(),
             }
             result.append(info)
         return result
@@ -400,7 +386,6 @@ class PlLocalModelManager:
         return self._models_on_disk.copy()
 
 
-# Singleton instance
 _local_model_manager: Optional[PlLocalModelManager] = None
 
 

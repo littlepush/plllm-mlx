@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from plllm_mlx.models.base_step_processor import PlStepProcessor
+from plllm_mlx.subprocess.python.step_processor import PlStepProcessor
 
 router = APIRouter(prefix="/v1", tags=["Step Processor"])
 

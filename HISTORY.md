@@ -1,5 +1,32 @@
 # History
 
+## 2025-03-18: v1.5.9 - Fix subprocess isolation implementation
+
+### Problem
+Subprocess isolation was designed but not working correctly:
+1. Model loading failed: `plllm-mlx` command not found when starting subprocess
+2. SSE streaming format was broken: missing `\n\n` suffix on data lines
+3. Non-streaming chat returned 500 error: `PlModelProxy` missing `chat_completions_restful` method
+
+### Root Cause Analysis
+1. **Subprocess startup**: Used `plllm-mlx subprocess serve` command, but `plllm-mlx` wasn't in PATH when service started via LaunchAgent
+2. **SSE format**: `httpx.aiter_lines()` strips newline characters, but we didn't add them back
+3. **Missing method**: `PlModelProxy` was a wrapper but didn't implement all methods that `PlModelLoader` had
+
+### Solution
+1. **Fix subprocess startup**: Use `sys.executable` to run `subprocess/python/main.py` directly
+   - Main process discovers Python interpreter path via `sys.executable`
+   - Creates command: `<python> <project>/plllm_mlx/subprocess/python/main.py --socket <path>`
+   - Works regardless of how main process was started
+2. **Fix SSE format**: Add `\n\n` suffix after iterating lines
+3. **Add missing method**: Implement `chat_completions_restful` in `PlModelProxy` that accumulates streaming response
+4. **Filter kwargs**: Remove non-serializable kwargs like `cancel_event` before sending to subprocess
+
+### Key Learnings
+1. When spawning child processes, always use `sys.executable` to ensure same Python interpreter
+2. SSE format requires `\n\n` after each data line; `iter_lines()` strips them
+3. Proxy objects need to implement all methods of the wrapped object
+
 ## 2025-03-17: v1.5.7 - Fix KV cache not working in multi-turn tool call conversations
 
 ### Problem

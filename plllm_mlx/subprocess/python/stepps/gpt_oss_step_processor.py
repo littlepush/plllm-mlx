@@ -16,13 +16,13 @@ from plllm_mlx.helpers import (
     PlChunkDataType,
     PlStepUsage,
 )
-from plllm_mlx.models.step_processor import PlStepProcessor
+from ..step_processor import PlStepProcessor
 from typing import Any, Optional, List, TYPE_CHECKING
 import re
 import json
 
 if TYPE_CHECKING:
-    from plllm_mlx.models.special_tokens import SpecialTokens
+    from ..special_tokens import SpecialTokens
 
 logger = get_logger(__name__)
 

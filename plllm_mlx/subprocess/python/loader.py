@@ -25,8 +25,7 @@ from plllm_mlx.helpers import (
 from plllm_mlx.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from .base_step_processor import PlStepProcessor
-    from .process_manager import PlProcessManager
+    from .step_processor import PlStepProcessor
 
 logger = get_logger(__name__)
 
@@ -102,7 +101,7 @@ class PlModelLoader(ABC):
     """
 
     __LOADER_MAP__: Dict[str, Type["PlModelLoader"]] = {}
-    _process_manager: Optional["PlProcessManager"] = None
+    _process_manager: Optional[Any] = None
 
     def __init__(
         self, model_name: str, step_processor_clz: Type["PlStepProcessor"]
@@ -159,7 +158,7 @@ class PlModelLoader(ABC):
         Returns:
             A model loader instance, or None if creation failed.
         """
-        from .base_step_processor import PlStepProcessor
+        from .step_processor import PlStepProcessor
 
         step_p_clz = PlStepProcessor.findStepProcessor(step_processor_name)
         if step_p_clz is None:
@@ -185,12 +184,12 @@ class PlModelLoader(ABC):
 
     # Process manager methods
     @classmethod
-    def set_process_manager(cls, pm: "PlProcessManager") -> None:
+    def set_process_manager(cls, pm: Any) -> None:
         """Set the process manager for subprocess isolation."""
         cls._process_manager = pm
 
     @classmethod
-    def get_process_manager(cls) -> Optional["PlProcessManager"]:
+    def get_process_manager(cls) -> Optional[Any]:
         """Get the current process manager."""
         return cls._process_manager
 
@@ -235,7 +234,7 @@ class PlModelLoader(ABC):
         Args:
             step_processor_name: The name of the new step processor.
         """
-        from .base_step_processor import PlStepProcessor
+        from .step_processor import PlStepProcessor
 
         step_p_clz = PlStepProcessor.findStepProcessor(step_processor_name)
         if step_p_clz is None:
@@ -688,30 +687,30 @@ class PlModelLoader(ABC):
 
 def _load_all_model_loaders() -> None:
     """
-    Load all model loaders from the models directory.
+    Load all model loaders from the subprocess/python/loaders directory.
 
-    This function imports all *_loader.py files from the models directory,
+    This function imports all *_loader.py files from the loaders subdirectory,
     which will trigger their registration via PlModelLoader.registerModelLoader().
     """
     import importlib
 
-    models_path = os.path.join(PlRootPath(), "models")
-    if not os.path.exists(models_path):
+    loaders_path = os.path.join(PlRootPath(), "subprocess", "python", "loaders")
+    if not os.path.exists(loaders_path):
         return
 
-    all_python_files = PlUnpackPath(models_path, recursive=False)
+    all_python_files = PlUnpackPath(loaders_path, recursive=False)
     for script in all_python_files:
         filename = os.path.basename(script)
-        if filename == "model_loader.py":
+        if filename in ("__init__.py",):
             continue
         if script.endswith("_loader.py"):
-            module_name = filename[:-3]  # Remove .py extension
+            module_name = filename[:-3]
             try:
-                # Import the module using the package-relative path
-                importlib.import_module(f".{module_name}", package="plllm_mlx.models")
+                importlib.import_module(
+                    f".{module_name}", package="plllm_mlx.subprocess.python.loaders"
+                )
                 logger.debug(f"Loaded model loader module: {module_name}")
             except ImportError as e:
-                # Log the error but don't fail - the loader might have missing dependencies
                 logger.debug(f"Could not import model loader {module_name}: {e}")
             except Exception as e:
                 logger.error(f"Failed to load model loader from {script}: {e}")

@@ -1,10 +1,11 @@
+import os
 from abc import ABC, abstractmethod
-from plllm_mlx.helpers import *
-from typing import Any, Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List, Optional
+
+from plllm_mlx.helpers import PlChunk, PlRootPath, PlUnpackPath
 from plllm_mlx.logging_config import get_logger
 
 logger = get_logger(__name__)
-import os
 
 if TYPE_CHECKING:
     from .special_tokens import SpecialTokens
@@ -81,10 +82,37 @@ class PlStepProcessor(ABC):
 
 
 # Load all step processors when current script is imported
-_all_python_codes = PlUnpackPath(os.path.join(PlRootPath(), "models"), recursive=False)
-for script in _all_python_codes:
-    if script.endswith("_step_processor.py"):
-        step_processor_clz = PlFindSpecifialSubclass(script, PlStepProcessor)
-        for clz in step_processor_clz:
-            logger.info(f"add step processor: {clz.step_clz_name()}")
-            PlStepProcessor.registerStepProcessor(clz.step_clz_name(), clz)
+def _load_all_step_processors():
+    import importlib
+
+    stepps_path = os.path.join(PlRootPath(), "subprocess", "python", "stepps")
+    if not os.path.exists(stepps_path):
+        return
+
+    all_python_codes = PlUnpackPath(stepps_path, recursive=False)
+    for script in all_python_codes:
+        filename = os.path.basename(script)
+        if filename in ("__init__.py",):
+            continue
+        if filename.endswith("_step_processor.py"):
+            module_name = filename[:-3]
+            try:
+                mod = importlib.import_module(
+                    f".{module_name}", package="plllm_mlx.subprocess.python.stepps"
+                )
+                for attr_name in dir(mod):
+                    attr = getattr(mod, attr_name)
+                    if (
+                        isinstance(attr, type)
+                        and issubclass(attr, PlStepProcessor)
+                        and attr is not PlStepProcessor
+                    ):
+                        logger.info(f"add step processor: {attr.step_clz_name()}")
+                        PlStepProcessor.registerStepProcessor(
+                            attr.step_clz_name(), attr
+                        )
+            except ImportError as e:
+                logger.debug(f"Could not import step processor {module_name}: {e}")
+
+
+_load_all_step_processors()

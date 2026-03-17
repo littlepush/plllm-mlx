@@ -303,7 +303,15 @@ def load(
 
 
 @app.command()
-def unload(model_name: str = typer.Argument(..., help="Model name to unload")):
+def unload(
+    model_name: str = typer.Argument(..., help="Model name to unload"),
+    kill_subprocess: bool = typer.Option(
+        False,
+        "--kill-subprocess",
+        "-k",
+        help="Also kill the subprocess for this model",
+    ),
+):
     """Unload a model."""
     client = PlClient()
 
@@ -312,9 +320,52 @@ def unload(model_name: str = typer.Argument(..., help="Model name to unload")):
     try:
         result = client.unload_model(model_name)
         console.print(f"[green]✓[/green] Model {model_name} unloaded")
+
+        if kill_subprocess:
+            _kill_subprocess_for_model(model_name)
+
     except Exception as e:
         console.print(f"[red]✗ Failed to unload model: {e}[/red]")
         sys.exit(1)
+
+
+def _kill_subprocess_for_model(model_name: str) -> None:
+    """Kill the subprocess for a model."""
+    import hashlib
+    import signal
+
+    subprocess_dir = Path.home() / ".plllm-mlx" / "subprocess"
+    model_hash = hashlib.md5(model_name.encode()).hexdigest()[:8]
+    socket_path = subprocess_dir / f"{model_hash}.sock"
+
+    if socket_path.exists():
+        try:
+            socket_path.unlink()
+            console.print(f"[dim]Removed socket: {socket_path}[/dim]")
+        except Exception:
+            pass
+
+    # Kill the subprocess process
+    try:
+        import subprocess as sp
+
+        result = sp.run(
+            ["pgrep", "-f", f"subprocess.*{model_hash}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for pid_str in result.stdout.strip().split("\n"):
+                if pid_str.strip():
+                    try:
+                        import os
+
+                        os.kill(int(pid_str.strip()), signal.SIGTERM)
+                        console.print(f"[dim]Terminated subprocess: {pid_str}[/dim]")
+                    except Exception:
+                        pass
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not kill subprocess: {e}[/yellow]")
 
 
 # ==================== Reload Command ====================
@@ -497,6 +548,148 @@ def status():
     console.print(f"  Log: {LOG_FILE}")
 
 
+# ==================== Subprocess Commands ====================
+
+subprocess_app = typer.Typer(
+    name="subprocess",
+    help="Manage model subprocess services",
+)
+app.add_typer(subprocess_app, name="subprocess")
+
+
+@subprocess_app.command("serve")
+def subprocess_serve(
+    socket: str = typer.Option(
+        ...,
+        "--socket",
+        "-s",
+        help="Unix domain socket path for the subprocess server",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model name to load on startup",
+    ),
+):
+    """Start a model subprocess server."""
+    from plllm_mlx.subprocess.python.server import run_server
+
+    console.print("[bold]Starting subprocess server...[/bold]")
+    console.print(f"  Socket: {socket}")
+    if model:
+        console.print(f"  Model: {model}")
+
+    run_server(socket_path=socket, model_name=model)
+
+
+@subprocess_app.command("status")
+def subprocess_status(
+    model: str = typer.Option(..., "--model", "-m", help="Model name"),
+):
+    """Check subprocess status for a model."""
+    import hashlib
+
+    import httpx
+
+    socket_dir = Path.home() / ".plllm-mlx" / "subprocess"
+    model_hash = hashlib.md5(model.encode()).hexdigest()[:8]
+    socket_path = socket_dir / f"{model_hash}.sock"
+
+    if not socket_path.exists():
+        console.print(f"[yellow]No subprocess found for model: {model}[/yellow]")
+        console.print(f"  Expected socket: {socket_path}")
+        return
+
+    try:
+        with httpx.Client(
+            transport=httpx.HTTPTransport(uds=str(socket_path)),
+            timeout=5.0,
+        ) as client:
+            resp = client.get("http://localhost/status")
+            data = resp.json()
+            console.print_json(data=data)
+    except Exception as e:
+        console.print(f"[red]Failed to connect to subprocess: {e}[/red]")
+        console.print(f"  Socket may be stale: {socket_path}")
+
+
+@subprocess_app.command("list")
+def subprocess_list():
+    """List all running subprocesses."""
+
+    import httpx
+
+    socket_dir = Path.home() / ".plllm-mlx" / "subprocess"
+
+    if not socket_dir.exists():
+        console.print("[yellow]No subprocess directory found[/yellow]")
+        return
+
+    sockets = list(socket_dir.glob("*.sock"))
+    if not sockets:
+        console.print("[yellow]No subprocess sockets found[/yellow]")
+        return
+
+    table = Table(title="Running Subprocesses")
+    table.add_column("Socket")
+    table.add_column("Status")
+    table.add_column("Model")
+    table.add_column("Loaded")
+
+    for sock in sockets:
+        try:
+            with httpx.Client(
+                transport=httpx.HTTPTransport(uds=str(sock)),
+                timeout=2.0,
+            ) as client:
+                resp = client.get("http://localhost/status")
+                data = resp.json()
+                table.add_row(
+                    sock.name,
+                    "[green]running[/green]",
+                    data.get("model_name", "-"),
+                    str(data.get("is_loaded", False)),
+                )
+        except Exception:
+            table.add_row(sock.name, "[red]dead[/red]", "-", "-")
+
+    console.print(table)
+
+
+@subprocess_app.command("stop")
+def subprocess_stop(
+    model: str = typer.Option(..., "--model", "-m", help="Model name"),
+):
+    """Stop a model subprocess."""
+    import hashlib
+
+    import httpx
+
+    socket_dir = Path.home() / ".plllm-mlx" / "subprocess"
+    model_hash = hashlib.md5(model.encode()).hexdigest()[:8]
+    socket_path = socket_dir / f"{model_hash}.sock"
+
+    if not socket_path.exists():
+        console.print(f"[yellow]No subprocess found for model: {model}[/yellow]")
+        return
+
+    try:
+        with httpx.Client(
+            transport=httpx.HTTPTransport(uds=str(socket_path)),
+            timeout=5.0,
+        ) as client:
+            resp = client.post("http://localhost/unload")
+            console.print(f"[green]Model unloaded: {model}[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to stop subprocess: {e}[/red]")
+
+    # Clean up socket file if still exists
+    if socket_path.exists():
+        socket_path.unlink()
+        console.print(f"[dim]Cleaned up socket: {socket_path}[/dim]")
+
+
 # ==================== Default: Start Server ====================
 
 
@@ -535,6 +728,7 @@ def main():
             "config",
             "status",
             "chat",
+            "subprocess",
         ]
     ):
         # Default to starting server with config
