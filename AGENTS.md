@@ -24,12 +24,61 @@
 
 ### Testing
 
+#### Unit Tests
+
 ```bash
-# Run all tests
-uv run pytest
+# Run all unit tests
+uv run pytest tests/unit/ -v
 
 # Run with coverage
-uv run pytest --cov=plllm_mlx
+uv run pytest tests/unit/ -v --cov=plllm_mlx --cov-report=term-missing
+```
+
+#### Integration Tests
+
+Integration tests require a real model and will start/stop the server automatically.
+
+```bash
+# Run all integration tests
+./tests/run_tests.sh
+
+# Run with quiet mode (only final summary)
+./tests/run_tests.sh --quiet
+
+# Redirect output to file
+./tests/run_tests.sh --redirect test_output.log
+
+# Run specific integration test
+bash tests/integration/test_01_health.sh
+```
+
+#### Complete Test Suite
+
+```bash
+# Run all tests (unit + integration)
+./tests/run_tests.sh
+```
+
+#### Manual Testing Commands
+
+```bash
+# Start the server in background
+uv run plx serve
+
+# Stop the server
+uv run plx stop
+
+# Check server status
+uv run plx status
+
+# List Local Model
+uv run plx ls
+
+# Load Model
+uv run plx load <model name>
+
+# Test Chat
+uv run plx chat -m <model_name> -p "prompt"
 ```
 
 ### Commit Guidelines
