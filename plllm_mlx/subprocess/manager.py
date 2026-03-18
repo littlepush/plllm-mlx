@@ -211,7 +211,13 @@ class PlSubprocessManager:
         handle = await self._start_subprocess(model_name, socket_path)
         if handle:
             # Load the model
-            await handle.load_model(model_name, loader, step_processor, config)
+            success = await handle.load_model(
+                model_name, loader, step_processor, config
+            )
+            if not success:
+                logger.error(f"Failed to load model {model_name} in subprocess")
+                await handle.cleanup()
+                raise RuntimeError(f"Failed to load model {model_name}")
             self._subprocesses[model_name] = handle
             return handle
 

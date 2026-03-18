@@ -100,7 +100,11 @@ async def ensure_model_loaded(
                 status_code=500, detail=f"Failed to update model {model_name}"
             )
 
-    await model.load_model()
+    load_success = await model.load_model()
+    if not load_success:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load model {model_name}"
+        )
 
     model = localModelMgr.find_model(model_name)
     if model is None:
