@@ -245,6 +245,7 @@ class PlLocalModelManager:
             True if successful, False otherwise.
         """
         from plllm_mlx.subprocess.python.loader import PlModelLoader
+        from plllm_mlx.subprocess.proxy import PlModelProxy
 
         model_info = self._model_configs.get(model_name)
         if model_info is None:
