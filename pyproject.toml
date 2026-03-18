@@ -1,6 +1,6 @@
 [project]
 name = "plllm-mlx"
-version = "1.6.0"
+version = "1.6.1"
 description = "Standalone MLX-based LLM inference service with OpenAI compatible API"
 readme = "README.md"
 license = { text = "MIT" }
@@ -53,8 +53,9 @@ plx = "plllm_mlx.cli:main"
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["plllm_mlx", "plllm_mlx.models", "plllm_mlx.routers", "plllm_mlx.helpers", "plllm_mlx.utils", "plllm_mlx.commands"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["plllm_mlx*"]
 
 [tool.setuptools.package-data]
 plllm_mlx = ["py.typed"]
